@@ -64,10 +64,22 @@ The Qwen profile is implemented but real caption inference has **not been valida
 
 ### Bounded alternative-caption checks
 
-These are feasibility checks, **not installed application profiles or successful caption runs**:
+These are feasibility checks, **not shipped application profiles or validated detailed music descriptions**:
 
 - **CoNeTTE:** stopped before checkpoint acquisition/inference. The upstream loader can invoke unrestricted `pickle.loads` on tokenizer extra state, its dependency pins conflict with the managed runtime, and default initialization has additional downloads. No loader safeguards were weakened. This is not a claim that the checkpoint is malicious.
-- **Native Qwen2.5-Omni-7B Q4_K_M:** the official llama.cpp **b12064 ARM64 CPU** executable ran and exposed local audio input and `--offline`. Its archive and the two GGUF files (6,231,560,864 bytes combined) passed their pinned SHA-256 checks. A real 20-30 second excerpt of the attributed recording below decoded to 160,000 mono 16 kHz samples. The first attempt stopped before launch with 9.67 GiB available, below its conservative 10 GiB start budget. After additional RAM became available without stopping other applications, one unchanged retry started with 10.32 GiB available and hit the original **8 GiB process-memory stop after 5.735 seconds**. Observed peak working set was 8,797,876,224 bytes (8.19 GiB); lowest system availability was 2.45 GiB, above the 2 GiB floor. The owned process was terminated and confirmed exited. Standard output was empty: **no caption or successful audio inference was demonstrated**. These measurements describe a stopped process, not a completed inference benchmark or a measured model minimum. The five-minute timeout, memory guards and offline/local-path settings were not relaxed.
+- **Native Qwen2.5-Omni-7B Q4_K_M:** the official llama.cpp **b12064 ARM64 CPU** executable ran and exposed local audio input and `--offline`. Its archive and the two GGUF files (6,231,560,864 bytes combined) passed their pinned SHA-256 checks. A real 20-30 second excerpt of the attributed recording below decoded to 160,000 mono 16 kHz samples.
+
+| Native attempt | Observed outcome |
+|---|---|
+| Initial preflight | Did not launch: 9.67 GiB available was below the conservative 10 GiB start budget. |
+| Default weight repacking | Launched with 10.32 GiB available, then hit the 8 GiB process-memory stop after 5.735 seconds. Peak working set was 8.19 GiB; lowest system availability was 2.45 GiB. The owned process was terminated; output was empty. |
+| Supported `--no-repack` allocation option | Completed in 40.906 seconds with **5.79 GiB peak working set** (6,216,237,056 bytes) and 5.35 GiB minimum system availability. Logs recorded actual audio-batch encoding in 6.36 seconds. Local model/audio paths, `--offline` and unreachable proxy settings were used. The output below failed the usefulness check. |
+
+The last run solved the allocation problem **without relaxing** the 10 GiB startup budget, 8 GiB process stop, 2 GiB system-memory floor or five-minute timeout. Its raw caption was:
+
+> The music is a lively instrumental piece in Bb major with a tempo of 175.0 bpm. It features a chord progression of Bb major, F major, and G# major, and a 4/4 time signature.
+
+The prompt asked for voices, instruments, rhythm, texture and changes, with uncertainty, and explicitly prohibited invented exact key/BPM/notes. The response omitted the requested voice/instrument details, called the vocal validation excerpt instrumental, and asserted unsupported precise harmony/timing. **Successful local execution is not successful musical analysis.** This result was not promoted into the application or substituted for the original caption profile.
 
 The native check pinned [llama.cpp commit `51fe42c5d14bfb9adf0612ff98a9ab79e0e7275c`](https://github.com/ggml-org/llama.cpp/tree/51fe42c5d14bfb9adf0612ff98a9ab79e0e7275c) and [GGUF revision `89b785438c8901d4635e42f50480ba5985a1bbf1`](https://huggingface.co/ggml-org/Qwen2.5-Omni-7B-GGUF/tree/89b785438c8901d4635e42f50480ba5985a1bbf1). The [pinned upstream 7B LICENSE](https://huggingface.co/Qwen/Qwen2.5-Omni-7B/blob/ae9e1690543ffd5c0221dc27f79834d0294cba00/LICENSE) contains Apache-2.0 terms; the GGUF card still labels its metadata `qwen-research` while linking to the upstream LICENSE. Both notices were retained with the local probe evidence. No alternative profile was exposed, existing selections were not changed, and the original Qwen2-Audio memory guard remains intact.
 
