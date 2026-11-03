@@ -4,16 +4,22 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { _electron as electron } from 'playwright'
 
-const userData = await mkdtemp(join(tmpdir(), 'sound-studio-smoke-'))
 const capture = process.argv.includes('--screenshots')
 const screenshots = resolve('docs/screenshots')
 const errors = []
 const { ELECTRON_RUN_AS_NODE: _unused, ...environment } = process.env
+const executableIndex = process.argv.indexOf('--executable')
+const executablePath = executableIndex === -1 ? undefined : process.argv[executableIndex + 1]
+if (executableIndex !== -1 && (!executablePath || executablePath.startsWith('--'))) {
+  throw new Error('--executable requires the path to a packaged application.')
+}
+const userData = await mkdtemp(join(tmpdir(), 'sound-studio-smoke-'))
 let app
 
 async function launch() {
   const instance = await electron.launch({
-    args: [resolve('out/main/index.js'), `--user-data-dir=${userData}`],
+    ...(executablePath ? { executablePath: resolve(executablePath) } : {}),
+    args: [...(executablePath ? [] : [resolve('out/main/index.js')]), `--user-data-dir=${userData}`],
     env: environment,
     timeout: 60_000
   })

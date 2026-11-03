@@ -61,6 +61,8 @@ npm start
 
 On Windows, `.\Start-SoundStudio.ps1` also opens an existing build. A browser-only UI preview is available with `npm run dev:web`.
 
+The [desktop release workflow](.github/workflows/release.yml) prepares draft releases for Windows x64 and ARM64, macOS Apple Silicon and Linux x64. Packages are unsigned and contain only the shell; see the [packaging and release guide](GUIDE.md#desktop-packages-and-releases) for details.
+
 See the [guide](GUIDE.md) for workflow details, local storage, development commands and current limitations. Contributor and coding-agent conventions are in [AGENTS.md](AGENTS.md).
 
 ## Future directions

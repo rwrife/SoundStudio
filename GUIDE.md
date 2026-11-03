@@ -6,7 +6,7 @@ Sound Studio is an Electron, React and TypeScript application shell for future l
 
 Implemented: Effects, Music and Decomposer navigation, contextual workflow steps, editable draft controls, local draft persistence, sample briefs and breakdowns, accessible placeholder dialogs and an empty audio canvas.
 
-Not implemented: inference, music decomposition, lyric transcription, backend connections, hardware detection, model downloads, audio import, audio synthesis, playback, waveform analysis, editing, export, projects, searchable libraries, packaging or an MCP server. Disabled controls are intentional. Navigating to a later step never marks work complete.
+Not implemented: inference, music decomposition, lyric transcription, backend connections, hardware detection, model downloads, audio import, audio synthesis, playback, waveform analysis, editing, export, projects, searchable libraries or an MCP server. Disabled controls are intentional. Navigating to a later step never marks work complete.
 
 ## Install and run
 
@@ -80,7 +80,17 @@ For recovery, first copy any needed text. In a browser preview, clear this site'
 
 Electron uses context isolation, sandboxing and disabled Node integration. Window-open requests, renderer-initiated navigation, webviews and permission requests are denied. A content security policy limits renderer resources to the app and development loopback connections. There is no arbitrary IPC bridge.
 
+The desktop window, macOS Dock and packaged application use the same waveform artwork as the header. `src/renderer/public/icon.svg` is the source; `build/icon.png` is its committed 1024-pixel raster counterpart. After changing the SVG, run `npm run icons` in a graphical desktop session, inspect the generated PNG and commit both assets. Electron Builder converts the PNG to platform-specific application icons when packaging.
+
 Future AI features should put inference and file access behind narrowly scoped, validated main-process APIs, never in the renderer. Keep model downloads explicit, retain provenance, preserve user assets and report actual backend errors. Do not silently substitute synthetic audio or cloud inference for a failed local model.
+
+## Desktop packages and releases
+
+`npm run package -- --win --x64` builds a Windows x64 ZIP containing the application. Substitute `--win --arm64`, `--mac --arm64` or `--linux --x64` for Windows ARM64 ZIP, macOS Apple Silicon DMG or Linux x64 tarball. Use the corresponding host OS for packaging; Windows ARM64 can be cross-built on Windows x64. Output goes to the ignored `release` directory. ZIP and tarball downloads must be extracted before running the application.
+
+The **Desktop release** GitHub Actions workflow runs when a `v*` tag is pushed, or manually with an existing tag. The tag must exactly match `v` plus the `package.json` version. It runs shared tests and desktop smoke checks, builds all four packages on matching-architecture runners, smoke-checks the packaged applications, and creates a **draft GitHub release** only after every build succeeds. Review the draft and publish it manually. Reusing an already-released tag fails rather than overwriting existing release assets. Relevant pull requests run the same builds and checks without creating a release.
+
+Windows and Linux **x86** release targets mean **x86-64 / x64**, not 32-bit x86. Packages contain only the application shell, not models or an inference backend. Downloads are currently unsigned and macOS builds are not notarized; the workflow does not claim operating-system trust or compatibility beyond its checks.
 
 ## Development and validation
 
@@ -92,6 +102,8 @@ npm run test:desktop
 ```
 
 `npm test` covers independent drafts, saved-state validation and sample brief contracts. `npm run test:desktop` builds and launches the real Electron application with an isolated temporary profile. It exercises tabs, sample briefs, settings, modal focus, disabled generation and export, persistence across relaunch, corrupt storage, sandbox exposure and minimum-window layout. It requires a graphical desktop session, but no Playwright browser download or inference backend.
+
+To run the same checks against a packaged Windows x64 application, use `node scripts/desktop-smoke.mjs --executable "release\win-unpacked\Sound Studio.exe"` after packaging. The `--executable` option also accepts a macOS application binary or Linux executable.
 
 Capture the actual app for documentation:
 

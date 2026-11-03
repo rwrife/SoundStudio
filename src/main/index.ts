@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog, session } from 'electron'
 import { join } from 'node:path'
+import appIcon from '../../build/icon.png?asset'
 
 app.setName('Sound Studio')
 
@@ -11,6 +12,7 @@ async function createWindow() {
     minHeight: 700,
     show: false,
     title: 'Sound Studio',
+    icon: appIcon,
     backgroundColor: '#111820',
     autoHideMenuBar: true,
     webPreferences: {
@@ -46,6 +48,7 @@ function reportStartupError(error: unknown) {
 }
 
 app.whenReady().then(async () => {
+  app.dock?.setIcon(appIcon)
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false))
   session.defaultSession.setPermissionCheckHandler(() => false)
   await createWindow()

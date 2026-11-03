@@ -1,0 +1,123 @@
+name: Desktop release
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/release.yml'
+      - 'build/**'
+      - 'src/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - 'package*.json'
+      - '*.config.ts'
+      - 'tsconfig.json'
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to release (must match package.json, e.g. v0.1.0)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-release-${{ github.event.pull_request.number || inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Package ${{ matrix.platform }} ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2025
+            platform: win
+            arch: x64
+            executable: release/win-unpacked/Sound Studio.exe
+          - os: windows-11-arm
+            platform: win
+            arch: arm64
+            executable: release/win-arm64-unpacked/Sound Studio.exe
+          - os: macos-15
+            platform: mac
+            arch: arm64
+            executable: release/mac-arm64/Sound Studio.app/Contents/MacOS/Sound Studio
+          - os: ubuntu-24.04
+            platform: linux
+            arch: x64
+            executable: release/linux-unpacked/sound-studio
+    runs-on: ${{ matrix.os }}
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      PACKAGED_EXECUTABLE: ${{ matrix.executable }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Validate release version
+        if: github.event_name != 'pull_request'
+        shell: bash
+        run: |
+          node --input-type=module -e "import fs from 'node:fs'; const { version } = JSON.parse(fs.readFileSync('package.json', 'utf8')); if (process.env.RELEASE_TAG !== 'v' + version) throw new Error('Release tag must match package.json version: v' + version)"
+      - run: npm ci
+      - run: npm test
+      - name: Check desktop on Linux
+        if: runner.os == 'Linux'
+        run: xvfb-run --auto-servernum npm run test:desktop
+      - name: Check desktop on Windows and macOS
+        if: runner.os != 'Linux'
+        run: npm run test:desktop
+      - name: Package application
+        run: npm run package -- --${{ matrix.platform }} --${{ matrix.arch }}
+      - name: Check packaged application on Linux
+        if: runner.os == 'Linux'
+        shell: bash
+        run: xvfb-run --auto-servernum node scripts/desktop-smoke.mjs --executable "$PACKAGED_EXECUTABLE"
+      - name: Check packaged application on Windows and macOS
+        if: runner.os != 'Linux'
+        shell: bash
+        run: node scripts/desktop-smoke.mjs --executable "$PACKAGED_EXECUTABLE"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sound-studio-${{ matrix.platform }}-${{ matrix.arch }}
+          path: |
+            release/*.zip
+            release/*.dmg
+            release/*.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Publish GitHub release
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: sound-studio-*
+          path: release
+          merge-multiple: true
+      - name: Create draft release with all four builds
+        shell: bash
+        run: |
+          gh release create "$RELEASE_TAG" release/* \
+            --verify-tag --draft --title "Sound Studio $RELEASE_TAG" \
+            --notes "Early application shell. AI generation, decomposition, playback, import and export are not implemented. Downloads are unsigned and not notarized. Windows and Linux x86 downloads are 64-bit (x64). Review the downloads before publishing this draft."
