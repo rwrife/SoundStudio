@@ -4,9 +4,9 @@
 
 **A local-first home for AI sound effects and music, built for the worlds you create.**
 
-Sketch the crackle of a campfire, the perfect interface chime, or the soundtrack to somewhere new. Sound Studio gives you two creative workspaces in one blue-toned desktop application, inspired by [Character Studio](https://github.com/rwrife/CharacterStudio). Generation runs on **your own [ComfyUI](https://github.com/comfyanonymous/ComfyUI)** on this device.
+Sketch the crackle of a campfire, the perfect interface chime, the soundtrack to somewhere new, or a breakdown of a song you want to study. Sound Studio gives you three creative workspaces in one blue-toned desktop application, inspired by [Character Studio](https://github.com/rwrife/CharacterStudio). Generation runs on **your own [ComfyUI](https://github.com/comfyanonymous/ComfyUI)** on this device.
 
-**Early preview.** Sound Studio drives a ComfyUI that you install. It can start ComfyUI for you with one click and then, after you confirm, download and verify the default models. Without ComfyUI, you can still draft and save ideas, but nothing is generated.
+**Early preview.** Sound Studio drives a ComfyUI that you install. It can start ComfyUI for you with one click and then, after you confirm, download and verify the default models. Without ComfyUI, you can still draft and save ideas, but nothing is generated. The **Decomposer** is a planning workspace only: audio import and analysis models are not connected yet.
 
 [Get started](#getting-started) | [Features](#features-at-a-glance) | [Models](#models) | [Future directions](#future-directions) | [Full guide](GUIDE.md)
 
@@ -21,6 +21,7 @@ Sketch the crackle of a campfire, the perfect interface chime, or the soundtrack
 | **Effects workspace.** Describe ambience, foley, interface sounds and more, with category, duration, seed and loop intent. | **Music workspace.** Set genre, mood, duration, tempo, key and lyrics when your model can sing. |
 | **Generate on your machine.** Sound Studio can start your ComfyUI for you, send it a validated workflow, follow its progress and cancel at any time. | **Hear every take.** Play takes, see waveforms drawn from the real audio, and compare recent takes. |
 | **Export with provenance.** Copy the original file and a `.provenance.json` that records the prompt, model, settings and workflow. | **Ideas that stay with you.** Drafts, takes and model choices stay on this device and survive restarts. |
+| **Plan a breakdown.** The Decomposer drafts a reference-track analysis plan (stems, tempo, harmony, lyrics) and can send a text brief to Music. It does not import or analyze audio yet. | **A little inspiration.** Load sample briefs and breakdowns and make them your own. Samples are text only. |
 
 ![Sound Studio's Model Settings drawer showing the current model, its readiness and a collapsed Advanced section](docs/screenshots/model-settings.png)
 
@@ -32,7 +33,7 @@ Sketch the crackle of a campfire, the perfect interface chime, or the soundtrack
 |---|---|---|---|
 | Effects | Stable Audio Open 1.0 | Mirelo SFX 2.0, ByteDance Seed Audio 1.0 | Any ComfyUI audio workflow |
 | Music | ACE-Step 1.5 Turbo, ACE-Step v1 3.5B, Stable Audio Open 1.0 | None | MusicGen, DiffRhythm 2 and other custom nodes |
-
+| Decomposer | Not connected yet | None | None |
 - **On this device:** open-weight models run by ComfyUI's built-in nodes. Sound Studio downloads the ones you need from Hugging Face after you confirm, and checks each file's SHA-256 before using it. Stable Audio Open and T5-base for Effects are about 5.4 GB; ACE-Step 1.5 Turbo for Music is about 9.3 GB.
 - **Cloud partner models:** run by a third-party service through ComfyUI partner nodes. They need your explicit opt-in and a Comfy.org API key, encrypted on this device. Charges apply, and an estimate is shown before you generate.
 - **Your workflow:** export any working ComfyUI audio workflow in API format, add placeholders such as `{{prompt}}` and `{{seconds}}`, and import it.
@@ -40,6 +41,10 @@ Sketch the crackle of a campfire, the perfect interface chime, or the soundtrack
 ![Sound Studio's Music workspace with genre, mood, tempo and key controls](docs/screenshots/music-workspace.png)
 
 *The actual Music workspace, with ACE-Step 1.5 selected and no ComfyUI connected.*
+
+![Sound Studio's Decomposer workspace with analysis focus, reference tempo, stem separation and lyric transcription plan controls](docs/screenshots/decomposer-workspace.png)
+
+*The actual Decomposer. It plans a breakdown and hands a text brief to Music; reference audio import and analysis are not connected yet.*
 
 ## Basic requirements
 
@@ -81,6 +86,7 @@ These are goals, **not shipped capabilities**:
 
 - Installing ComfyUI itself for first-time users.
 - Variations, inpainting and loop refinement for existing takes.
+- Music decomposition for the Decomposer: reference audio import, stem separation, tempo and harmony analysis, and lyric transcription, using local models with explicit downloads.
 - Audio import, a searchable asset library and project files for game and media projects.
 
 The foundation is intentionally small: describe the idea, generate it on your own hardware and keep the record of how it was made.

@@ -11,7 +11,11 @@ import {
   activeStatuses, buildGenerationRequest, estimateCostUsd, modelProfiles, randomSeed, takeDisplayTitle,
   type JobState, type TakeRecord
 } from '../shared/generation'
-import { effectCategories, examples, musicGenres, musicKeys, musicMoods, steps, type Draft, type Step, type Workspace } from '../shared/workspace'
+import {
+  buildVariationBrief, effectCategories, examples, isGenerationWorkspace, musicGenres, musicKeys, musicMoods, steps, workspaces,
+  type Draft, type Step, type StudioWorkspace, type Workspace
+} from '../shared/workspace'
+import { DecomposerWorkspace } from './DecomposerWorkspace'
 import { Dialog } from './Dialog'
 import { BackendConnections } from './BackendConnections'
 import { ModelDownloadPanel } from './ModelDownloadPanel'
@@ -38,7 +42,10 @@ export function App() {
   const [starting, setStarting] = useState(false)
   const seenCompleted = useRef(new Set<string>())
   const mainRef = useRef<HTMLElement>(null)
-  const { workspace } = state
+  const studioWorkspace = state.workspace
+  const isDecomposer = studioWorkspace === 'decomposer'
+  // Decomposer renders its own panel with no generation path, so these values always describe Effects or Music.
+  const workspace: Workspace = isGenerationWorkspace(studioWorkspace) ? studioWorkspace : 'effects'
   const draft = state.drafts[workspace]
   const isMusic = workspace === 'music'
   const noun = isMusic ? 'music' : 'sound'
@@ -73,15 +80,29 @@ export function App() {
     mainRef.current?.scrollTo({ top: 0 })
   }
 
-  function selectWorkspace(next: Workspace) {
+  function selectWorkspace(next: StudioWorkspace) {
     setState(current => ({ ...current, workspace: next }))
     setNotice('')
+  }
+
+  function sendBriefToMusic() {
+    setState(current => ({
+      ...current,
+      workspace: 'music',
+      drafts: { ...current.drafts, music: { ...current.drafts.music, ...buildVariationBrief(current.drafts.decomposer), step: 'brief' } }
+    }))
+    setNotice('Decomposer brief transferred to the Music workspace. No audio was generated.')
   }
 
   function navigateTabs(event: KeyboardEvent<HTMLElement>) {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
     event.preventDefault()
-    const next = event.key === 'Home' ? 'effects' : event.key === 'End' ? 'music' : workspace === 'effects' ? 'music' : 'effects'
+    const currentIndex = workspaces.findIndex(item => item.id === studioWorkspace)
+    const nextIndex = event.key === 'Home' ? 0
+      : event.key === 'End' ? workspaces.length - 1
+      : event.key === 'ArrowRight' ? (currentIndex + 1) % workspaces.length
+      : (currentIndex - 1 + workspaces.length) % workspaces.length
+    const next = workspaces[nextIndex].id
     selectWorkspace(next)
     document.getElementById(`${next}-tab`)?.focus()
   }
@@ -163,12 +184,12 @@ export function App() {
         <span>sound <strong>studio</strong><small>LOCAL SOUND. LIMITLESS IDEAS.</small></span>
       </a>
       <nav className="workspace-tabs" role="tablist" aria-label="Sound workspace" onKeyDown={navigateTabs}>
-        {(['effects', 'music'] as const).map(tab => <Fragment key={tab}>
-          {tab === 'music' && <span className="workspace-tab-divider" aria-hidden="true">|</span>}
-          <button id={`${tab}-tab`} role="tab"
-            className={workspace === tab ? 'active' : ''} aria-selected={workspace === tab}
-            aria-controls={`${tab}-panel`} tabIndex={workspace === tab ? 0 : -1} onClick={() => selectWorkspace(tab)}>
-            {tab === 'effects' ? 'Effects' : 'Music'}
+        {workspaces.map((tab, index) => <Fragment key={tab.id}>
+          {index > 0 && <span className="workspace-tab-divider" aria-hidden="true">|</span>}
+          <button id={`${tab.id}-tab`} role="tab"
+            className={studioWorkspace === tab.id ? 'active' : ''} aria-selected={studioWorkspace === tab.id}
+            aria-controls={`${tab.id}-panel`} tabIndex={studioWorkspace === tab.id ? 0 : -1} onClick={() => selectWorkspace(tab.id)}>
+            {tab.label}
           </button>
         </Fragment>)}
       </nav>
@@ -183,10 +204,12 @@ export function App() {
     {storageError && <div className="error-banner" role="alert">{storageError} Drafts are currently kept in memory only.</div>}
 
     <div id="workspace" className="workspace-host">
-      {(['effects', 'music'] as const).map(tab => <div key={tab} id={`${tab}-panel`} role="tabpanel"
-        aria-labelledby={`${tab}-tab`} hidden={workspace !== tab} className="workspace-layout">
-        {workspace === tab && <>
-          <aside className="settings-panel" aria-label={`${isMusic ? 'Music' : 'Effects'} step settings`}>
+      {workspaces.map(tab => <div key={tab.id} id={`${tab.id}-panel`} role="tabpanel"
+        aria-labelledby={`${tab.id}-tab`} hidden={studioWorkspace !== tab.id} className="workspace-layout">
+        {studioWorkspace === tab.id && (tab.id === 'decomposer' ? <DecomposerWorkspace draft={state.drafts.decomposer} label={tab.label}
+          mainRef={mainRef} notice={notice} libraryCount={backend.takes.length} storageError={storageError}
+          onUpdate={updateDraft} onStep={selectStep} onNotice={setNotice} onLibrary={() => setSurface('library')} onSendToMusic={sendBriefToMusic} /> : <>
+          <aside className="settings-panel" aria-label={`${tab.label} step settings`}>
             <div className="step-kicker"><span className="eyebrow">0{stepIndex + 1} / {steps[stepIndex].label}</span><span className="mini-badge">{executionBadge(profile.execution)}</span></div>
             <h1>{draft.step === 'brief' ? isMusic ? 'Music studio' : 'Sound effects' : steps[stepIndex].label}</h1>
             <p className="panel-intro">{stepDescription}</p>
@@ -280,7 +303,7 @@ export function App() {
           </aside>
 
           <main className="workflow-main" ref={mainRef}>
-            <nav className="process-stepper" aria-label={`${isMusic ? 'Music' : 'Effects'} workflow`}>
+            <nav className="process-stepper" aria-label={`${tab.label} workflow`}>
               <ol>{steps.map((step, index) => <li key={step.id}>
                 <button className={`process-step ${draft.step === step.id ? 'current' : ''}`} aria-current={draft.step === step.id ? 'step' : undefined}
                   onClick={() => selectStep(step.id)}>
@@ -315,8 +338,8 @@ export function App() {
               </div>
             </section>}
 
-            <section className="inspiration" aria-labelledby={`${tab}-inspiration`}>
-              <div className="section-heading"><h3 id={`${tab}-inspiration`}><Sparkles size={14} /> A starting point, if you need one</h3><span>LOAD A SAMPLE BRIEF</span></div>
+            <section className="inspiration" aria-labelledby={`${tab.id}-inspiration`}>
+              <div className="section-heading"><h3 id={`${tab.id}-inspiration`}><Sparkles size={14} /> A starting point, if you need one</h3><span>LOAD A SAMPLE BRIEF</span></div>
               <div className="example-grid">{examples[workspace].map((example, index) => {
                 const Icon = isMusic ? [Music2, ListMusic, Waves][index] : [Waves, Zap, Radio][index]
                 return <button className="example-card" key={example.title} onClick={() => {
@@ -343,11 +366,11 @@ export function App() {
                 : <div className="empty-takes"><Layers3 size={19} /><span>No takes yet. Your generated {isMusic ? 'music' : 'sounds'} will find a home here.</span><span className="local-tag"><ShieldCheck size={12} /> STORED ON YOUR DEVICE</span></div>}
             </section>
           </main>
-        </>}
+        </>)}
       </div>)}
     </div>
 
-    <footer className="statusbar"><span><ShieldCheck size={13} /> LOCAL FIRST <span className="footer-divider">/</span><span>{backend.cloud?.enabled ? 'Cloud partner models enabled' : 'No cloud. No uploads.'}</span></span><span className="footer-flow">Describe <ChevronRight size={10} /> Generate <ChevronRight size={10} /> Refine <ChevronRight size={10} /> Export</span><span><span className="status-dot blue" /> PREVIEW <span className="footer-divider">/</span> v{version}</span></footer>
+    <footer className="statusbar"><span><ShieldCheck size={13} /> LOCAL FIRST <span className="footer-divider">/</span><span>{backend.cloud?.enabled ? 'Cloud partner models enabled' : 'No cloud. No uploads.'}</span></span><span className="footer-flow">Describe <ChevronRight size={10} /> {isDecomposer ? 'Decompose' : 'Generate'} <ChevronRight size={10} /> Refine <ChevronRight size={10} /> Export</span><span><span className="status-dot blue" /> PREVIEW <span className="footer-divider">/</span> v{version}</span></footer>
 
     {surface === 'models' && <Dialog title="Model Settings" eyebrow="YOUR LOCAL ENGINE" drawer onClose={() => setSurface(null)}>
       <ModelSettings backend={backend} workspace={modelWorkspace} onWorkspace={setModelWorkspace} />
@@ -375,9 +398,10 @@ export function App() {
     </Dialog>}
 
     {surface === 'help' && <Dialog title="A small guide to the studio" eyebrow="WELCOME TO SOUND STUDIO" onClose={() => setSurface(null)}>
-      <p className="dialog-intro">Two workspaces. One place to find your sound.</p>
+      <p className="dialog-intro">Three workspaces. One place to find and understand your sound.</p>
       <div className="guide-item"><AudioLines size={20} /><div><h3>Effects for the little details</h3><p>Describe ambience, foley, interface sounds or something entirely new. Choose a category and sketch your timing.</p></div></div>
       <div className="guide-item"><Music2 size={20} /><div><h3>Music for the bigger picture</h3><p>Set a genre, mood, tempo and key, and add lyrics when your model can sing.</p></div></div>
+      <div className="guide-item"><Layers3 size={20} /><div><h3>Decomposer for studying existing music</h3><p>Plan stem separation, tempo and harmony analysis and lyric transcription, then send a variation brief to Music. Audio import and analysis are not connected yet.</p></div></div>
       <div className="guide-item"><Settings2 size={20} /><div><h3>Bring your own ComfyUI</h3><p>Install ComfyUI and a model. Sound Studio can start ComfyUI for you from Backend, or connect to one you started. Choose models in Model Settings.</p></div></div>
       <div className="guide-item"><Clock3 size={20} /><div><h3>Your ideas stay with you</h3><p>Drafts and takes are saved on this device. Cloud partner models are off unless you turn them on.</p></div></div>
     </Dialog>}

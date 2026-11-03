@@ -6,6 +6,7 @@ Sound Studio is an Electron, React and TypeScript desktop app for AI sound effec
 
 **Implemented:**
 - Effects and Music workspaces with independent drafts.
+- A Decomposer workspace for planning reference-track breakdowns and sending a text brief to Music. It is a planning placeholder: it has no model, readiness check or generation path.
 - A loopback-only ComfyUI connection with version, device and model-file checks.
 - Starting and stopping your own ComfyUI install with one click.
 - Confirmed, SHA-256-verified downloads of the default local models into that install.
@@ -20,6 +21,7 @@ Sound Studio is an Electron, React and TypeScript desktop app for AI sound effec
 
 **Not implemented:**
 - Installing or updating ComfyUI, starting the ComfyUI Desktop app, and downloading models other than the default local ones below.
+- Music decomposition: reference audio import, stem separation, tempo and harmony analysis and lyric transcription.
 - Audio import, editing, variations, loop refinement or loudness processing.
 - Project files, search, packaging and an MCP server.
 
@@ -85,7 +87,7 @@ Sound Studio only stops a ComfyUI it started itself. Console output goes to `log
 
 ## Models
 
-Each workspace has its own model choice. The defaults are Stable Audio Open 1.0 for Effects and ACE-Step 1.5 Turbo for Music, and most people never need to change them. Model Settings shows the current model, its readiness and a download button when its files are missing. Choosing another model, a specific file, a custom workflow or a cloud partner model is under **Advanced** in Model Settings. Advanced starts collapsed unless you have already changed something there. It lists models in three groups and shows readiness, length limits, lyrics and key support, hardware fit, license and source.
+Effects and Music each have their own model choice; the Decomposer has none yet and shows **Analysis models / Not connected**, and Model Settings opened from it shows Effects. The defaults are Stable Audio Open 1.0 for Effects and ACE-Step 1.5 Turbo for Music, and most people never need to change them. Model Settings shows the current model, its readiness and a download button when its files are missing. Choosing another model, a specific file, a custom workflow or a cloud partner model is under **Advanced** in Model Settings. Advanced starts collapsed unless you have already changed something there. It lists models in three groups and shows readiness, length limits, lyrics and key support, hardware fit, license and source.
 
 ### Download the default models
 
@@ -158,6 +160,12 @@ Write a take name and description, then choose a category, duration, optional se
 
 Write a musical brief and choose genre, mood, duration and tempo. Choose a key when the model supports it. Clear **Instrumental only** to add lyrics with section tags such as `[verse]` and `[chorus]`. Models that cannot sing say so.
 
+### Decomposer
+
+Write an analysis name and breakdown goal, choose an analysis focus (`Full breakdown`, `Stems & arrangement`, `Tempo & harmony`, `Lyrics & vocals` or `Variation brief`), set character/mood, excerpt window and reference tempo, and toggle stem separation and lyric transcription intentions. Sample breakdowns cover synthwave stem and groove study, harmonic movement analysis and vocal/lyric transcription planning.
+
+Options are draft intentions, not promises of model support. There is deliberately no executable analysis contract yet, and the Decomposer never reaches model selection, readiness checks, downloads or ComfyUI. Numeric fields may retain incomplete or out-of-range edits; future inference adapters must validate their actual model-specific constraints before execution.
+
 ### Steps
 
 1. **Describe:** edit your brief or load a sample brief. Sample briefs are text only; loading one never generates audio.
@@ -166,6 +174,8 @@ Write a musical brief and choose genre, mood, duration and tempo. Choose a key w
 4. **Export:** save the selected take.
 
 Navigating to a step never marks work complete. Each workspace runs one job at a time. Jobs live in the running app; if you close it, ComfyUI may still finish the job, but the result is not collected as a take.
+
+In the Decomposer the same four steps plan a breakdown instead: **Decompose** lists the planned analysis stages, **Review & refine** lists the review layers, and every audio action stays disabled with the reason "Not available yet". From its Export step, **Send brief to Music workspace** transfers a structured variation brief, mood, duration, tempo and vocal intention into Music's Describe step. No audio is generated or analyzed. Effects, Music and Decomposer keep their drafts and selected steps independently.
 
 ## Takes, export and provenance
 
@@ -177,7 +187,7 @@ Takes are stored in the app profile under `takes/`. Each has an audio file and a
 
 ## Storage and privacy
 
-- **Drafts:** local storage under `sound-studio.workspace.v1`, schema version 2. Version 1 drafts migrate automatically.
+- **Drafts:** local storage under `sound-studio.workspace.v1`, schema version 2. All three drafts, the selected tab and each selected step are saved. Version 1 drafts migrate automatically, and saved data without a Decomposer draft gets the default one.
 - **Connection and model choices:** `sound-studio.backend.v1`.
 - **Chosen ComfyUI folder:** `comfyui-launcher.json` in the profile, with the ComfyUI console log in `logs\comfyui.log`.
 - **Cloud key:** encrypted in the profile, as described above.
@@ -226,6 +236,7 @@ npm run test:desktop
 - Local, failed and cancelled jobs.
 - Cloud opt-in and API-key handling.
 - ACE-Step and custom workflow graphs.
+- Decomposer planning, its disabled actions and the brief handoff to Music.
 - Playback, export with provenance and library delete.
 - Relaunch persistence, corrupt storage and the minimum window size.
 
@@ -237,7 +248,7 @@ Capture the actual app for documentation:
 npm run screenshots
 ```
 
-This runs the same checks and writes `effects-workspace.png`, `model-settings.png`, `music-workspace.png` and `backend-connections.png` to `docs/screenshots`. They are captured before connecting to the mock, so they never show test-fixture audio. Inspect captures before committing.
+This runs the same checks and writes `effects-workspace.png`, `model-settings.png`, `music-workspace.png`, `decomposer-workspace.png` and `backend-connections.png` to `docs/screenshots`. They are captured before connecting to the mock, so they never show test-fixture audio. Inspect captures before committing; never use mockups as evidence of working generation or decomposition.
 
 ## Troubleshooting
 
