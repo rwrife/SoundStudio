@@ -8,6 +8,7 @@ Sound Studio is an Electron, React and TypeScript desktop app for AI sound effec
 - Effects and Music workspaces with independent drafts.
 - A loopback-only ComfyUI connection with version, device and model-file checks.
 - Starting and stopping your own ComfyUI install with one click.
+- Confirmed, SHA-256-verified downloads of the default local models into that install.
 - Model profiles with readiness checks, hardware-fit guidance and per-model input limits.
 - Generation jobs with live progress, honest failure and cancellation states, and a one-hour limit.
 - Validation of returned audio before it becomes a take.
@@ -18,7 +19,7 @@ Sound Studio is an Electron, React and TypeScript desktop app for AI sound effec
 - Imported custom ComfyUI workflows.
 
 **Not implemented:**
-- Model downloads, installing or updating ComfyUI, and starting the ComfyUI Desktop app.
+- Installing or updating ComfyUI, starting the ComfyUI Desktop app, and downloading models other than the default local ones below.
 - Audio import, editing, variations, loop refinement or loudness processing.
 - Project files, search, packaging and an MCP server.
 
@@ -42,7 +43,8 @@ npm run dev
 1. Install a recent ComfyUI build: the portable or desktop release, or a source checkout. Older builds may lack the ACE-Step 1.5 or partner nodes; Model Settings names any missing nodes.
 2. Open Sound Studio. It looks for ComfyUI at `http://127.0.0.1:8188` on every launch. If ComfyUI is not running, the header shows **Setup needs attention** and the Effects and Music panels show **ComfyUI is not running**.
 3. Choose either one to open **Backend connections**, then choose **Start local ComfyUI** (see below), or start ComfyUI yourself, type its address and press Enter.
-4. Work down the **Readiness checks** until each shows a check mark. Each row that needs attention has a button that fixes it or opens the right place. After adding model files, restart ComfyUI (or refresh its model list) and choose **Refresh**.
+4. After **Start local ComfyUI**, Sound Studio offers to download any missing default models (see [Download the default models](#download-the-default-models)). Confirm, and generation becomes available when the download finishes.
+5. Work down the **Readiness checks** until each shows a check mark. Each row that needs attention has a button that fixes it or opens the right place. If you add model files yourself, choose **Refresh**; restart ComfyUI if they still don't appear.
 
 Only `127.0.0.1`, `localhost` and `[::1]` are accepted. Sound Studio does not talk to remote ComfyUI servers. Even so, any other program on this device can reach an open ComfyUI port, so keep ComfyUI bound to loopback.
 
@@ -54,7 +56,7 @@ Only `127.0.0.1`, `localhost` and `[::1]` are accepted. Sound Studio does not ta
 | ComfyUI server | The version and address, and whether Sound Studio started it. **Start** when it is not running. |
 | Graphics processor | The devices and VRAM that ComfyUI reports. A warning when it reports only the processor. |
 | Audio output node | Whether Sound Studio's WAV output node is installed and loaded (below). **Install** or **Restart ComfyUI** when needed. |
-| Effects model, Music model | Whether the selected model is ready, with the checkpoint in use, or what is missing. **Model Settings** opens that workspace's models. |
+| Effects model, Music model | Whether the selected model is ready, with the checkpoint in use, or what is missing. **Download** when a default model file is missing, otherwise **Model Settings** opens that workspace's models. |
 
 The header reads **Local backends ready** when nothing is blocked. Checks report only what ComfyUI and the folder actually show; they do not measure performance.
 
@@ -83,17 +85,28 @@ Sound Studio only stops a ComfyUI it started itself. Console output goes to `log
 
 ## Models
 
-Each workspace has its own model choice. Model Settings lists models in three groups and shows readiness, length limits, lyrics and key support, hardware fit, license and source.
+Each workspace has its own model choice. The defaults are Stable Audio Open 1.0 for Effects and ACE-Step 1.5 Turbo for Music, and most people never need to change them. Model Settings shows the current model, its readiness and a download button when its files are missing. Choosing another model, a specific file, a custom workflow or a cloud partner model is under **Advanced** in Model Settings. Advanced starts collapsed unless you have already changed something there. It lists models in three groups and shows readiness, length limits, lyrics and key support, hardware fit, license and source.
+
+### Download the default models
+
+Sound Studio can download the local models below straight into the `models` folder of the ComfyUI install it starts. It offers this once, right after **Start local ComfyUI**, for the selected Effects and Music models. You can also choose **Download** in the readiness checks, in the Generate panel or in Model Settings.
+
+- Nothing downloads without confirmation. A Windows dialog lists each file with its size, Hugging Face repository, license and URL, the folder it will be saved to, and notes that each file is checked against a published SHA-256 hash. Downloading means you accept those licenses.
+- Files come only from `huggingface.co` at a pinned revision, over HTTPS. Redirects are followed only to Hugging Face hosts.
+- Each file is written to a hidden `.part` file, checked for exact size and SHA-256, and only then saved under its final name. A failed, cancelled or mismatched download leaves nothing behind. An existing file is never overwritten; if a different file already has the name, the download stops and says so.
+- Sound Studio checks free disk space first and stops a download that stalls for two minutes.
+- Progress shows wherever the download button was. You can keep working or choose **Cancel**. When it finishes, Sound Studio refreshes the readiness checks.
+- Downloads need a ComfyUI install that Sound Studio found or that you chose with the folder button. For a ComfyUI you started elsewhere, follow **How to set up *model* manually** under Advanced.
 
 ### On this device
 
-These open-weight models run through ComfyUI's built-in nodes. Download them from the linked source and accept any license terms there.
+These open-weight models run through ComfyUI's built-in nodes. Sound Studio can download each of them as described above. To download them yourself, use the linked source and accept any license terms there.
 
 | Model | Workspaces | File | Notes |
 |---|---|---|---|
-| Stable Audio Open 1.0 | Effects, Music | `models/checkpoints/stable-audio-open-1.0.safetensors` and `models/text_encoders/t5-base.safetensors` | 1-47 s. Stability AI Community License. About 6 GB VRAM suggested. |
-| ACE-Step 1.5 Turbo | Music | `models/checkpoints/ace_step_1.5_turbo_aio.safetensors` from [Comfy-Org/ACE-Step-1.5](https://huggingface.co/Comfy-Org/ACE-Step-1.5) (about 10 GB) | 10-600 s, lyrics, tempo and key. Apache-2.0 as published by Comfy-Org. About 12 GB VRAM suggested. |
-| ACE-Step v1 3.5B | Music | `models/checkpoints/ace_step_v1_3.5b.safetensors` | 5-240 s, lyrics. Apache-2.0. About 10 GB VRAM suggested. |
+| Stable Audio Open 1.0 | Effects, Music | `models/checkpoints/stable-audio-open-1.0.safetensors` from [Comfy-Org/stable-audio-open-1.0](https://huggingface.co/Comfy-Org/stable-audio-open-1.0) (4.5 GB) and `models/text_encoders/t5-base.safetensors` from [google-t5/t5-base](https://huggingface.co/google-t5/t5-base) (850 MB) | 1-47 s. Stability AI Community License (free below US$1M annual revenue); T5-base is Apache-2.0. About 6 GB VRAM suggested. |
+| ACE-Step 1.5 Turbo | Music | `models/checkpoints/ace_step_1.5_turbo_aio.safetensors` from [Comfy-Org/ACE-Step-1.5](https://huggingface.co/Comfy-Org/ACE-Step-1.5) (9.3 GB) | 10-600 s, lyrics, tempo and key. Apache-2.0 as published by Comfy-Org. About 12 GB VRAM suggested. |
+| ACE-Step v1 3.5B | Music | `models/checkpoints/ace_step_v1_3.5b.safetensors` from [Comfy-Org/ACE-Step_ComfyUI_repackaged](https://huggingface.co/Comfy-Org/ACE-Step_ComfyUI_repackaged) (7.2 GB) | 5-240 s, lyrics. Apache-2.0. About 10 GB VRAM suggested. |
 
 Sound Studio picks a matching checkpoint automatically, or you can choose a specific file. The file list puts the files that match the model first. If a saved choice doesn't look like the selected model but a matching file is installed, the model shows **NEEDS SETUP** and offers **Use *matching file* instead**, which switches back to Automatic in one click. The Generate panel only flags backend checks for the workspace you are in. Hardware fit compares the suggested VRAM with what ComfyUI reports. It is guidance, not a measurement of real performance.
 
@@ -180,7 +193,7 @@ If saved data cannot be read or has an unknown format, an error banner appears a
 
 | Location | Responsibility |
 |---|---|
-| `src/main` | Lifecycle and window security. Also: the ComfyUI client (`comfyui.ts`), job monitor (`generation.ts`), take store (`takes.ts`), encrypted cloud access (`cloud.ts`), the ComfyUI launcher (`launcher.ts`, `comfyInstall.ts`), the WAV output node installer (`outputNode.ts`) and validated IPC handlers (`ipc.ts`). |
+| `src/main` | Lifecycle and window security. Also: the ComfyUI client (`comfyui.ts`), job monitor (`generation.ts`), take store (`takes.ts`), encrypted cloud access (`cloud.ts`), the ComfyUI launcher (`launcher.ts`, `comfyInstall.ts`), the WAV output node installer (`outputNode.ts`), the model downloader (`modelDownload.ts`) and validated IPC handlers (`ipc.ts`). |
 | `src/preload` | A narrow, typed bridge (`window.soundStudio`). It has no generic IPC, filesystem or shell access. |
 | `src/renderer` | React workspaces, Backend connections, Model Settings, the take player, backend state, dialogs and draft storage. |
 | `src/shared` | Draft schema and migration, model profiles, readiness and backend checks, request validation, workflow builders and audio inspection. |
@@ -193,6 +206,8 @@ Every IPC call is validated again in the main process: loopback endpoints, gener
 
 The launcher accepts a ComfyUI folder only from the main-process folder picker or its own detection, never from the renderer. It runs only a recognized layout's own Python, without a shell, with fixed arguments that bind ComfyUI to loopback. It never stops a process it did not start. The only file it writes into the ComfyUI folder is the marked output node, resolved inside that folder's `custom_nodes` and written atomically.
 
+The model downloader accepts only catalog IDs from the renderer, never URLs or paths. The main process resolves the target inside the launcher's `models` folder, asks for confirmation in a native dialog, and fetches the pinned Hugging Face URL itself, as described in [Download the default models](#download-the-default-models).
+
 ## Development and validation
 
 ```powershell
@@ -202,12 +217,12 @@ npm run build
 npm run test:desktop
 ```
 
-`npm test` covers drafts and migration, model profiles, ComfyUI install detection and launch arguments, output node installation, readiness checks, the loopback endpoint policy, request validation, workflow builders and output node selection, custom workflow placeholders, readiness and cloud gating, history interpretation and WAV/FLAC parsing.
+`npm test` covers drafts and migration, model profiles, the model download catalog and downloader (host allowlist, redirects, size and SHA-256 checks, no overwrites, confirmation), ComfyUI install detection and launch arguments, output node installation, readiness checks, the loopback endpoint policy, request validation, workflow builders and output node selection, custom workflow placeholders, readiness and cloud gating, history interpretation and WAV/FLAC parsing.
 
 `npm run test:desktop` builds and launches the real Electron app with an isolated temporary profile. It runs against `scripts/mock-comfyui.mjs`, a test fixture that speaks the ComfyUI HTTP and WebSocket API and returns a synthesized test tone. The smoke test covers:
 
 - Connection policy, the first-run check and the readiness checks.
-- One-click start from the canvas and dialog, output node installation, stop, and stop-on-quit for a fake ComfyUI install (`scripts/fake-comfyui-install.mjs`), which needs Python and is skipped without it.
+- One-click start from the canvas and dialog, output node installation, stop, and stop-on-quit for a fake ComfyUI install (`scripts/fake-comfyui-install.mjs`), which needs Python and is skipped without it. With that install, it also checks that the download offer appears and that declining it writes nothing.
 - Local, failed and cancelled jobs.
 - Cloud opt-in and API-key handling.
 - ACE-Step and custom workflow graphs.
@@ -234,7 +249,8 @@ This runs the same checks and writes `effects-workspace.png`, `model-settings.pn
 | Jobs fail in Save Audio or Preview Audio, mentioning PyAV, `av` or FFmpeg | ComfyUI's audio encoder cannot load on this PC. Install the Sound Studio output node from the **Audio output node** check, or choose **Start local ComfyUI**, which installs it, and restart ComfyUI. |
 | "...was not created by Sound Studio" | A different file sits at `custom_nodes\sound_studio_nodes\__init__.py`. Move it away if you do not need it, then choose **Install** again. |
 | "Only ComfyUI running on this device..." | Remote servers are not supported. Run ComfyUI locally on loopback. |
-| A model shows **NEEDS SETUP** | Follow the listed issues. Missing nodes need a newer ComfyUI or custom nodes. Missing files need to go in the named `models` folder; then restart ComfyUI and choose **Refresh**. |
+| A model shows **NEEDS SETUP** | Follow the listed issues. For a missing default model, choose **Download**. Missing nodes need a newer ComfyUI or custom nodes. Other missing files need to go in the named `models` folder; then choose **Refresh**, restarting ComfyUI if needed. |
+| A model download fails | The message says why: no network, too little disk space, a stalled connection, or a size or SHA-256 mismatch. Nothing partial is kept, so choose **Download** again. If "a different file already exists", move that file away first. |
 | "...does not look like the *model* checkpoint" | A file for a different model is selected. In Model Settings, choose **Use *matching file* instead** or pick **Automatic**. |
 | Cloud models stay disabled | Store a Comfy.org API key first, then tick **Allow cloud partner models**. If encryption is unavailable, the key cannot be stored. |
 | ComfyUI rejects the workflow | The message lists failing nodes and inputs. Check model files and custom nodes in ComfyUI itself. |

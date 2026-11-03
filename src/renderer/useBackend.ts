@@ -6,6 +6,7 @@ import {
 } from '../shared/generation'
 import type { Workspace } from '../shared/workspace'
 import type { LauncherStatus } from '../shared/launcher'
+import { idleDownload, missingDownloads, type DownloadStatus, type ModelDownload } from '../shared/modelDownloads'
 
 export const backendStorageKey = 'sound-studio.backend.v1'
 
@@ -100,6 +101,8 @@ export function useBackend() {
 
   const [launcher, setLauncher] = useState<LauncherStatus | null>(null)
   const [launcherError, setLauncherError] = useState('')
+  /** Set by one-click start, so the missing default models are offered once ComfyUI reports what it has. */
+  const offerModels = useRef(false)
 
   /** One click: starts the user's ComfyUI (or finds it already running), then connects to it. */
   const startComfy = useCallback(async (raw: string) => {
@@ -117,6 +120,7 @@ export function useBackend() {
       setLauncherError(message(error))
       return
     }
+    offerModels.current = true
     await check(endpoint)
   }, [bridge, check, setSettings])
 
@@ -202,6 +206,47 @@ export function useBackend() {
     return { effects: assess('effects'), music: assess('music') }
   }, [settings.models, status, cloud, inspections, inspectionErrors])
 
+  const [download, setDownload] = useState<DownloadStatus>(idleDownload)
+  const [downloadError, setDownloadError] = useState('')
+  const endpointRef = useRef(settings.endpoint)
+  endpointRef.current = settings.endpoint
+
+  /** Catalog files the chosen models still need. Offered only when ComfyUI's folder is known, since that is where they go. */
+  const missingModels = useMemo<Record<Workspace, ModelDownload[]>>(() => {
+    const canSave = !!launcher?.layout
+    const missing = (workspace: Workspace) => canSave ? missingDownloads(settings.models[workspace].profileId, readiness[workspace], !!status) : []
+    return { effects: missing('effects'), music: missing('music') }
+  }, [launcher?.layout, settings.models, readiness, status])
+
+  const downloadModels = useCallback(async (items: ModelDownload[]) => {
+    if (!bridge || !items.length) return
+    setDownloadError('')
+    try { setDownload(await unwrap(bridge.downloadModels([...new Set(items.map(item => item.id))]))) } catch (error) { setDownloadError(message(error)) }
+  }, [bridge])
+
+  const cancelDownload = useCallback(async () => {
+    if (!bridge) return
+    try { setDownload(await unwrap(bridge.cancelDownload())) } catch (error) { setDownloadError(message(error)) }
+  }, [bridge])
+
+  useEffect(() => {
+    if (!bridge) return
+    const unsubscribe = bridge.onDownloadUpdate(next => {
+      setDownload(next)
+      // ComfyUI rescans its model folders on each request, so new files appear without a restart.
+      if (next.phase === 'completed') void check(endpointRef.current)
+    })
+    void bridge.getDownload().then(result => { if (result.ok) setDownload(result.value) })
+    return unsubscribe
+  }, [bridge, check])
+
+  useEffect(() => {
+    if (!offerModels.current || !status) return
+    offerModels.current = false
+    const items = [...missingModels.effects, ...missingModels.music]
+    if (items.length && download.phase !== 'downloading') void downloadModels(items)
+  }, [status, missingModels, download.phase, downloadModels])
+
   const chooseModel = useCallback((workspace: Workspace, patch: Partial<ModelChoice>) => {
     setSettings(current => {
       const choice = { ...current.models[workspace], ...patch }
@@ -244,6 +289,7 @@ export function useBackend() {
   return {
     available: !!bridge, settings, settingsError, connection, status, cloud, readiness, inspections, jobs, takes, unreadableTakes, takesError,
     launcher, launcherError, startComfy, stopComfy, installOutputNode,
+    download, downloadError, missingModels, downloadModels, cancelDownload,
     refreshLauncher: () => bridge ? launcherAction(() => bridge.getLauncher()) : Promise.resolve(),
     chooseComfyFolder: () => bridge ? launcherAction(() => bridge.chooseComfyFolder()) : Promise.resolve(),
     showComfyLog: async () => { if (bridge) { const result = await bridge.showComfyLog(); setLauncherError(result.ok ? '' : result.error) } },

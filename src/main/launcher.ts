@@ -3,7 +3,7 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { closeSync, existsSync, mkdirSync, openSync, writeSync } from 'node:fs'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { normalizeEndpoint } from '../shared/generation'
 import { comfyLaunchArguments, type LauncherPhase, type LauncherStatus } from '../shared/launcher'
 import { candidateFolders, detectComfyInstall, findComfyInstall, type ComfyInstall } from './comfyInstall'
@@ -215,6 +215,14 @@ export class ComfyLauncher {
       : 'Audio output node installed. ComfyUI loads it the next time it starts; restart it if it is already running.'
     await this.notify()
     return this.status()
+  }
+
+  /** ComfyUI/models of the recognized install, where downloaded models are saved. */
+  async modelsFolder(): Promise<string> {
+    await this.load()
+    const { install, error } = this.install()
+    if (!install) throw new Error(error || 'Choose your ComfyUI folder first, so Sound Studio knows where to save models.')
+    return join(dirname(install.mainScript), 'models')
   }
 
   async showLog() {

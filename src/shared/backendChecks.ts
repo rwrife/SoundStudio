@@ -3,7 +3,7 @@ import type { LauncherStatus } from './launcher'
 import type { Workspace } from './workspace'
 
 export type CheckStatus = 'ready' | 'warning' | 'blocked' | 'pending'
-export type CheckAction = 'choose-folder' | 'start' | 'install-node' | 'restart' | 'models-effects' | 'models-music'
+export type CheckAction = 'choose-folder' | 'start' | 'install-node' | 'restart' | 'models-effects' | 'models-music' | 'download-effects' | 'download-music'
 
 export interface BackendCheck { id: string; name: string; status: CheckStatus; detail: string; action?: CheckAction }
 
@@ -17,12 +17,16 @@ export interface CheckInput {
   launcher: LauncherStatus | null
   models: Record<Workspace, ModelChoice>
   readiness: Record<Workspace, Readiness>
+  /** Bytes of catalog files each workspace's model still needs; zero or absent when nothing can be downloaded. */
+  downloads?: Record<Workspace, number>
+  /** True while a model download is running. */
+  downloading?: boolean
 }
 
 const gigabytes = (bytes: number) => `${Math.round(bytes / 1024 ** 3 * 10) / 10} GB`
 
 /** Readiness checks for the Backend connections screen. Each describes what was actually observed, never what is assumed. */
-export function backendChecks({ connection, launcher, models, readiness }: CheckInput): BackendCheck[] {
+export function backendChecks({ connection, launcher, models, readiness, downloads, downloading }: CheckInput): BackendCheck[] {
   const status = connection.state === 'connected' ? connection.status : null
   const starting = launcher?.phase === 'starting'
   const managed = launcher?.phase === 'running'
@@ -67,11 +71,16 @@ export function backendChecks({ connection, launcher, models, readiness }: Check
     const profile = modelProfiles[models[workspace].profileId]
     const result = readiness[workspace]
     const action = workspace === 'effects' ? 'models-effects' as const : 'models-music' as const
+    const download = downloads?.[workspace] ?? 0
     checks.push(!status
       ? { id: workspace, name: label, status: 'pending', detail: `${profile.label}. Checked once ComfyUI is running.` }
       : result.ready
         ? { id: workspace, name: label, status: 'ready', detail: `${profile.label}${result.checkpoint ? ` / ${result.checkpoint}` : ''}${result.remote ? '. Sends your prompt to a partner service.' : ''}` }
-        : { id: workspace, name: label, status: 'blocked', detail: `${profile.label}: ${result.issues.join(' ')}`, action })
+        : download && downloading
+          ? { id: workspace, name: label, status: 'pending', detail: `${profile.label} is downloading.` }
+          : download
+            ? { id: workspace, name: label, status: 'blocked', detail: [`${profile.label} is not downloaded yet (${gigabytes(download)}).`, ...result.issues.filter(issue => !/^No .* found in ComfyUI\/models/.test(issue))].join(' '), action: workspace === 'effects' ? 'download-effects' : 'download-music' }
+            : { id: workspace, name: label, status: 'blocked', detail: `${profile.label}: ${result.issues.join(' ')}`, action })
   }
   return checks
 }

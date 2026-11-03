@@ -131,6 +131,14 @@ test('readiness reports missing models, nodes and cloud opt-in honestly', () => 
   assert.match(unrelated.issues.join(), /does not look like the ACE-Step 1.5 Turbo checkpoint. Choose Automatic \(ace_step_1.5_turbo_aio.safetensors\)/)
   const renamed = assessReadiness(choice('ace-step-1.5-turbo', { checkpoint: 'my-music.safetensors' }), status({ checkpoints: ['my-music.safetensors'] }), cloudOff)
   assert.equal(renamed.ready, true, 'a renamed file is accepted when nothing better matches')
+  const wrongEncoder = assessReadiness(choice('stable-audio-open-1.0', { textEncoder: 'qwen_3_4b.safetensors' }),
+    status({ textEncoders: ['qwen_3_4b.safetensors'] }), cloudOff)
+  assert.equal(wrongEncoder.textEncoder, null, "another model's text encoder is never used, even when saved as the choice")
+  assert.equal(wrongEncoder.ready, false)
+  assert.match(wrongEncoder.issues.join(), /No T5-base text encoder found/)
+  const healed = assessReadiness(choice('stable-audio-open-1.0', { textEncoder: 'qwen_3_4b.safetensors' }),
+    status({ textEncoders: ['qwen_3_4b.safetensors', 't5-base.safetensors'] }), cloudOff)
+  assert.deepEqual([healed.ready, healed.textEncoder], [true, 't5-base.safetensors'], 'a stale wrong choice falls back to the matching file')
   const mireloOff = assessReadiness(choice('mirelo-sfx-2.0'), status(), cloudOff)
   assert.equal(mireloOff.remote, true)
   assert.equal(mireloOff.ready, false)

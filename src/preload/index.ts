@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { channels, type SoundStudioBridge } from '../shared/bridge'
 import type { JobState } from '../shared/generation'
 import type { LauncherStatus } from '../shared/launcher'
+import type { DownloadStatus } from '../shared/modelDownloads'
 
 const invoke = (channel: string, ...args: unknown[]) => ipcRenderer.invoke(channel, ...args)
 
@@ -18,6 +19,14 @@ const bridge: SoundStudioBridge = {
     const handler = (_event: Electron.IpcRendererEvent, status: LauncherStatus) => listener(status)
     ipcRenderer.on(channels.launcherUpdate, handler)
     return () => { ipcRenderer.removeListener(channels.launcherUpdate, handler) }
+  },
+  getDownload: () => invoke(channels.downloadStatus),
+  downloadModels: ids => invoke(channels.downloadStart, ids),
+  cancelDownload: () => invoke(channels.downloadCancel),
+  onDownloadUpdate: listener => {
+    const handler = (_event: Electron.IpcRendererEvent, status: DownloadStatus) => listener(status)
+    ipcRenderer.on(channels.downloadUpdate, handler)
+    return () => { ipcRenderer.removeListener(channels.downloadUpdate, handler) }
   },
   inspectWorkflow: (endpoint, workflow) => invoke(channels.inspectWorkflow, endpoint, workflow),
   getCloudStatus: () => invoke(channels.cloudStatus),

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { existsSync } from 'node:fs'
 import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -57,9 +58,12 @@ async function stopsAnswering(endpoint) {
   return false
 }
 
-async function openModels(page) {
+async function openModels(page, { advanced = true } = {}) {
   await page.getByRole('button', { name: 'Model Settings', exact: true }).click()
-  return page.getByRole('dialog', { name: 'Model Settings', exact: true })
+  const dialog = page.getByRole('dialog', { name: 'Model Settings', exact: true })
+  const details = dialog.locator('details.advanced-settings')
+  if (advanced && !(await details.evaluate(element => element.open))) await details.locator('summary').click()
+  return dialog
 }
 
 async function writeBrief(page, fields) {
@@ -109,16 +113,20 @@ try {
   await page.getByLabel('Take name').fill('Forest ambience')
   await page.getByLabel('Describe your sound').fill('Rain through a forest canopy')
   await page.getByLabel('Seamless loop').check()
-  let models = await openModels(page)
+  let models = await openModels(page, { advanced: false })
   await models.waitFor()
   await page.keyboard.press('Shift+Tab')
   assert.equal(await page.evaluate(() => Boolean(document.activeElement.closest('dialog'))), true, 'Modal must contain keyboard focus')
+  // First run shows only the recommended model; choosing models and files is under Advanced.
+  assert.equal(await models.locator('details.advanced-settings').evaluate(element => element.open), false)
+  assert.equal(await models.getByRole('radio', { name: /^Stable Audio Open 1\.0/ }).isVisible(), false)
+  assert.match(await models.locator('.model-card').innerText(), /NEEDS SETUP[\s\S]*Connect to a local ComfyUI server/)
+  if (capture) await page.screenshot({ path: join(screenshots, 'model-settings.png'), scale: 'css', animations: 'disabled', caret: 'hide' })
+  await models.locator('details.advanced-settings summary').click()
   for (const heading of ['On this device', 'Cloud partner models', 'Your ComfyUI workflow']) assert.equal(await models.getByRole('heading', { name: heading, exact: true }).first().isVisible(), true)
   for (const label of [/^Stable Audio Open 1\.0/, /^Mirelo SFX 2\.0/, /^ByteDance Seed Audio 1\.0/, /^Custom ComfyUI workflow/]) assert.equal(await models.getByRole('radio', { name: label }).count(), 1)
-  assert.equal(await models.getByRole('radio', { name: /^Stable Audio Open 1\.0/ }).isChecked(), true)
-  assert.match(await models.locator('.model-card').innerText(), /NEEDS SETUP[\s\S]*Connect to a local ComfyUI server/)
+  assert.equal(await models.getByRole('radio', { name: /^Stable Audio Open 1\.0 \(recommended\)/ }).isChecked(), true)
   assert.equal(await models.getByRole('checkbox', { name: /Allow cloud partner models/ }).isDisabled(), true)
-  if (capture) await page.screenshot({ path: join(screenshots, 'model-settings.png'), scale: 'css', animations: 'disabled', caret: 'hide' })
   await models.getByRole('button', { name: 'Music', exact: true }).click()
   assert.equal(await models.getByRole('radio', { name: /^ACE-Step 1\.5 Turbo/ }).isChecked(), true)
   assert.equal(await models.getByRole('radio', { name: /^ACE-Step v1 3\.5B/ }).count(), 1)
@@ -180,9 +188,23 @@ try {
     await connections.getByLabel(/ComfyUI address/).press('Enter')
     await check(connections, 'ComfyUI server').getByRole('button', { name: 'Start', exact: true }).waitFor()
     await page.keyboard.press('Escape')
+    // Declines the model download Sound Studio offers after one-click start, so the smoke never touches the network.
+    await app.evaluate(({ dialog }) => {
+      globalThis.downloadPrompts = []
+      dialog.showMessageBox = async (...args) => { globalThis.downloadPrompts.push(args.at(-1)); return { response: 1, checkboxChecked: false } }
+    })
     await page.getByRole('button', { name: 'Start local ComfyUI' }).click()
     await backendButton(page).click()
     await check(connections, 'ComfyUI server').getByText(/ComfyUI 0\.3\.0-launched at .*, started by Sound Studio\./).waitFor({ timeout: 60_000 })
+    await check(connections, 'Effects model').getByRole('button', { name: 'Download' }).waitFor()
+    const prompts = await app.evaluate(() => globalThis.downloadPrompts)
+    assert.equal(prompts.length, 1, 'the missing default models are offered once')
+    assert.match(prompts[0].message, /^Download Stable Audio Open 1\.0, T5-base text encoder, and ACE-Step 1\.5 Turbo \(14\.7 GB\)\?/)
+    assert.match(prompts[0].detail, /Stability AI Community License[\s\S]*SHA-256/)
+    assert.match(await check(connections, 'Effects model').innerText(), /Stable Audio Open 1\.0 is not downloaded yet \(5\.4 GB\)/)
+    assert.match(await check(connections, 'Music model').innerText(), /ACE-Step 1\.5 Turbo is not downloaded yet \(9\.3 GB\)/)
+    assert.equal(await connections.getByRole('button', { name: /^Download models \(14\.7 GB\)/ }).isVisible(), true)
+    assert.equal(existsSync(join(fakeComfy.folder, 'models', 'checkpoints')), false, 'declining downloads nothing')
     assert.match(await check(connections, 'Audio output node').innerText(), /Save Audio WAV \(Sound Studio\) is loaded/)
     assert.match(await readFile(join(fakeComfy.folder, 'custom_nodes', 'sound_studio_nodes', '__init__.py'), 'utf8'), /^# Managed by Sound Studio/)
     assert.match(await check(connections, 'Graphics processor').innerText(), /reports no GPU/)

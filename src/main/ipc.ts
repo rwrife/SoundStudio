@@ -5,9 +5,11 @@ import type { CloudAccess } from './cloud'
 import { ComfyClient } from './comfyui'
 import type { GenerationManager } from './generation'
 import type { ComfyLauncher } from './launcher'
+import type { ModelDownloader } from './modelDownload'
 import type { TakeStore } from './takes'
+import { validateDownloadIds } from '../shared/modelDownloads'
 
-interface Services { cloud: CloudAccess; takes: TakeStore; generation: GenerationManager; launcher: ComfyLauncher; window: () => BrowserWindow | null }
+interface Services { cloud: CloudAccess; takes: TakeStore; generation: GenerationManager; launcher: ComfyLauncher; downloader: ModelDownloader; window: () => BrowserWindow | null }
 
 const uuidLike = (value: unknown): string => {
   if (typeof value !== 'string' || !takeIdPattern.test(value)) throw new Error('Unknown item.')
@@ -15,7 +17,7 @@ const uuidLike = (value: unknown): string => {
 }
 
 /** Registers the bridge handlers. Every call must come from the app window's main frame and is re-validated here. */
-export function registerIpc({ cloud, takes, generation, launcher, window }: Services) {
+export function registerIpc({ cloud, takes, generation, launcher, downloader, window }: Services) {
   const handle = <T>(channel: string, run: (window: BrowserWindow, ...args: unknown[]) => Promise<T>) => {
     ipcMain.handle(channel, async (event: IpcMainInvokeEvent, ...args: unknown[]): Promise<Result<T>> => {
       const current = window()
@@ -37,6 +39,9 @@ export function registerIpc({ cloud, takes, generation, launcher, window }: Serv
   handle(channels.launcherStop, async () => launcher.stop())
   handle(channels.launcherNode, async () => launcher.installNode())
   handle(channels.launcherLog, async () => launcher.showLog())
+  handle(channels.downloadStatus, async () => downloader.get())
+  handle(channels.downloadStart, async (_window, ids) => downloader.start(validateDownloadIds(ids)))
+  handle(channels.downloadCancel, async () => downloader.cancel())
   handle(channels.inspectWorkflow, async (_window, endpoint, workflow) => {
     const valid = validateCustomWorkflow({ name: 'Workflow', graph: workflow })
     const { missingNodes, apiNodes } = await new ComfyClient(endpoint).inspectNodes(Object.values(valid.graph).map(node => node.class_type))

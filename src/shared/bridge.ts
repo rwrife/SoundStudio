@@ -1,6 +1,7 @@
 import type { AudioInfo } from './audio'
 import type { BackendStatus, CloudConfiguration, CloudStatus, ComfyWorkflow, GenerationRequest, JobState, Result, TakeRecord, WorkflowInspection } from './generation'
 import type { LauncherStatus } from './launcher'
+import type { DownloadStatus } from './modelDownloads'
 
 export interface TakeList { takes: TakeRecord[]; unreadable: number }
 export interface TakeAudio { bytes: Uint8Array; mimeType: string; info: AudioInfo }
@@ -18,6 +19,11 @@ export interface SoundStudioBridge {
   installOutputNode(): Promise<Result<LauncherStatus>>
   showComfyLog(): Promise<Result<void>>
   onLauncherUpdate(listener: (status: LauncherStatus) => void): () => void
+  getDownload(): Promise<Result<DownloadStatus>>
+  /** Asks for confirmation in a native dialog, then downloads the listed catalog files into ComfyUI/models. */
+  downloadModels(ids: string[]): Promise<Result<DownloadStatus>>
+  cancelDownload(): Promise<Result<DownloadStatus>>
+  onDownloadUpdate(listener: (status: DownloadStatus) => void): () => void
   inspectWorkflow(endpoint: string, workflow: ComfyWorkflow): Promise<Result<WorkflowInspection>>
   getCloudStatus(): Promise<Result<CloudStatus>>
   configureCloud(configuration: CloudConfiguration): Promise<Result<CloudStatus>>
@@ -40,6 +46,10 @@ export const channels = {
   launcherNode: 'launcher:node',
   launcherLog: 'launcher:log',
   launcherUpdate: 'launcher:update',
+  downloadStatus: 'download:status',
+  downloadStart: 'download:start',
+  downloadCancel: 'download:cancel',
+  downloadUpdate: 'download:update',
   inspectWorkflow: 'workflow:inspect',
   cloudStatus: 'cloud:status',
   cloudConfigure: 'cloud:configure',

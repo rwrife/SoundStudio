@@ -1,11 +1,14 @@
 import { useRef, useState } from 'react'
-import { AlertTriangle, ArrowRight, AudioLines, Check, Cloud, Cpu, FileJson, KeyRound, Music2, ShieldCheck, Trash2, Upload } from 'lucide-react'
+import { AlertTriangle, ArrowRight, AudioLines, Check, Cloud, Cpu, FileJson, KeyRound, Music2, ShieldCheck, SlidersHorizontal, Trash2, Upload } from 'lucide-react'
 import {
-  assessHardware, estimateCostUsd, importCustomWorkflow, modelProfiles, placeholders, profilesFor,
+  assessHardware, createDefaultBackendSettings, estimateCostUsd, importCustomWorkflow, modelProfiles, placeholders, profilesFor,
   type Execution, type ModelProfile
 } from '../shared/generation'
 import type { Workspace } from '../shared/workspace'
+import { ModelDownloadPanel } from './ModelDownloadPanel'
 import type { Backend } from './useBackend'
+
+const defaults = createDefaultBackendSettings()
 
 const groups: ReadonlyArray<{ execution: Execution; title: string; detail: string }> = [
   { execution: 'local', title: 'On this device', detail: 'Open weights run by your ComfyUI. Prompts and audio stay local.' },
@@ -21,28 +24,18 @@ export function ModelSettings({ backend, workspace, onWorkspace }: { backend: Ba
   const readiness = backend.readiness[workspace]
   const status = backend.status
   const hardware = assessHardware(profile, status?.devices ?? [])
+  const customized = (['effects', 'music'] as const).some(tab => {
+    const current = backend.settings.models[tab]
+    const encoder = modelProfiles[current.profileId].textEncoder
+    return current.profileId !== defaults.models[tab].profileId || !!current.checkpoint || (!!encoder && encoder.pattern.test(current.textEncoder))
+  })
+  const [advanced, setAdvanced] = useState(customized)
 
   return <>
-    <p className="dialog-intro">Choose the model behind each workspace. Sound Studio drives your own ComfyUI; it does not download models or run inference itself.</p>
+    <p className="dialog-intro">Each workspace comes with a recommended local model, downloaded into your ComfyUI with one click. Prompts and audio stay on this device. To use a different model, file or workflow, open Advanced.</p>
     <div className="segmented" aria-label="Model workspace">{(['effects', 'music'] as const).map(tab =>
       <button key={tab} aria-pressed={workspace === tab} onClick={() => onWorkspace(tab)}>{tab === 'effects' ? 'Effects' : 'Music'}</button>)}</div>
     {backend.settingsError && <p className="warning-text" role="alert"><AlertTriangle size={14} /> {backend.settingsError}</p>}
-
-    <fieldset className="profile-list">
-      <legend className="sr-only">{workspace === 'effects' ? 'Effects' : 'Music'} model</legend>
-      {groups.map(group => {
-        const items = profilesFor(workspace).filter(item => item.execution === group.execution)
-        if (!items.length) return null
-        return <div key={group.execution} className="profile-group">
-          <h3>{group.title}</h3><p className="field-hint">{group.detail}</p>
-          {items.map(item => <label key={item.id} className={`profile-option ${item.id === profile.id ? 'selected' : ''}`}>
-            <input type="radio" name={`${workspace}-profile`} checked={item.id === profile.id} onChange={() => backend.chooseModel(workspace, { profileId: item.id })} />
-            <span><strong>{item.label}</strong><small>{item.summary}</small></span>
-            <span className={`execution-badge ${item.execution}`}>{executionBadge(item.execution)}</span>
-          </label>)}
-        </div>
-      })}
-    </fieldset>
 
     <div className="model-card">
       <div className="model-card-icon">{workspace === 'effects' ? <AudioLines size={24} /> : <Music2 size={24} />}</div>
@@ -60,6 +53,27 @@ export function ModelSettings({ backend, workspace, onWorkspace }: { backend: Ba
       </dl>
       {!!readiness.issues.length && <ul className="issue-list" aria-label="Setup needed">{readiness.issues.map(issue => <li key={issue}><AlertTriangle size={13} /> {issue}</li>)}</ul>}
     </div>
+    <ModelDownloadPanel backend={backend} items={backend.missingModels[workspace]} />
+    {!status && backend.available && <p className="field-hint">Start ComfyUI from Backend connections to check and download models.</p>}
+
+    <details className="advanced-settings" open={advanced} onToggle={event => setAdvanced(event.currentTarget.open)}>
+      <summary><SlidersHorizontal size={14} /> Advanced <span>models, files, workflows and cloud</span></summary>
+
+    <fieldset className="profile-list">
+      <legend className="sr-only">{workspace === 'effects' ? 'Effects' : 'Music'} model</legend>
+      {groups.map(group => {
+        const items = profilesFor(workspace).filter(item => item.execution === group.execution)
+        if (!items.length) return null
+        return <div key={group.execution} className="profile-group">
+          <h3>{group.title}</h3><p className="field-hint">{group.detail}</p>
+          {items.map(item => <label key={item.id} className={`profile-option ${item.id === profile.id ? 'selected' : ''}`}>
+            <input type="radio" name={`${workspace}-profile`} checked={item.id === profile.id} onChange={() => backend.chooseModel(workspace, { profileId: item.id })} />
+            <span><strong>{item.label}{item.id === defaults.models[workspace].profileId ? ' (recommended)' : ''}</strong><small>{item.summary}</small></span>
+            <span className={`execution-badge ${item.execution}`}>{executionBadge(item.execution)}</span>
+          </label>)}
+        </div>
+      })}
+    </fieldset>
 
     {(profile.checkpoint || profile.textEncoder) && <div className="settings-block">
       <h3><Cpu size={15} /> Installed files</h3>
@@ -67,18 +81,20 @@ export function ModelSettings({ backend, workspace, onWorkspace }: { backend: Ba
         files={status?.checkpoints ?? []} pattern={profile.checkpoint.pattern} modelLabel={profile.label} selected={choice.checkpoint}
         onChange={checkpoint => backend.chooseModel(workspace, { checkpoint })} disabled={!status} />}
       {profile.textEncoder && <ModelFileSelect id={`${workspace}-encoder`} label="Text encoder" suggested={profile.textEncoder.suggested}
-        files={status?.textEncoders ?? []} pattern={profile.textEncoder.pattern} modelLabel={profile.label} selected={choice.textEncoder}
+        files={(status?.textEncoders ?? []).filter(file => profile.textEncoder!.pattern.test(file))} pattern={profile.textEncoder.pattern} modelLabel={profile.label}
+        selected={profile.textEncoder.pattern.test(choice.textEncoder) ? choice.textEncoder : ''}
         onChange={textEncoder => backend.chooseModel(workspace, { textEncoder })} disabled={!status} />}
     </div>}
 
     {profile.execution === 'workflow' && <WorkflowImport backend={backend} workspace={workspace} />}
 
     <div className="settings-block">
-      <h3>How to set up {profile.label}</h3>
+      <h3>How to set up {profile.label} manually</h3>
       <ol className="install-steps">{profile.install.map(step => <li key={step}>{step}</li>)}</ol>
     </div>
 
     <CloudAccessPanel backend={backend} profile={profile} remote={readiness.remote} />
+    </details>
   </>
 }
 

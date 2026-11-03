@@ -55,10 +55,11 @@ export const modelProfiles: Record<ModelProfileId, ModelProfile> = {
     checkpoint: { pattern: /stable[-_ ]?audio/i, suggested: 'stable-audio-open-1.0.safetensors' },
     textEncoder: { pattern: /t5[-_ ]?base/i, suggested: 't5-base.safetensors', clipType: 'stable_audio' },
     requiredNodes: ['CheckpointLoaderSimple', 'CLIPLoader', 'CLIPTextEncode', 'ConditioningStableAudio', 'EmptyLatentAudio', 'KSampler', 'VAEDecodeAudio', 'SaveAudio'],
-    source: 'https://huggingface.co/stabilityai/stable-audio-open-1.0',
-    license: 'Stability AI Community License. Accept the terms on Hugging Face before downloading.',
+    source: 'https://huggingface.co/Comfy-Org/stable-audio-open-1.0',
+    license: 'Stability AI Community License (free below US$1M annual revenue; see LICENSE.md in the model repository). T5-base is Apache-2.0.',
     install: [
-      'Download model.safetensors from the model page and save it as ComfyUI/models/checkpoints/stable-audio-open-1.0.safetensors.',
+      'Sound Studio downloads both files for you after you confirm. To do it yourself instead:',
+      'Download stable-audio-open-1.0.safetensors from Comfy-Org/stable-audio-open-1.0 to ComfyUI/models/checkpoints/.',
       'Download the T5-base text encoder (google-t5/t5-base model.safetensors) to ComfyUI/models/text_encoders/t5-base.safetensors.'
     ]
   },
@@ -75,7 +76,7 @@ export const modelProfiles: Record<ModelProfileId, ModelProfile> = {
     requiredNodes: ['CheckpointLoaderSimple', 'ModelSamplingAuraFlow', 'TextEncodeAceStepAudio1.5', 'ConditioningZeroOut', 'EmptyAceStep1.5LatentAudio', 'KSampler', 'VAEDecodeAudio', 'SaveAudio'],
     source: 'https://huggingface.co/Comfy-Org/ACE-Step-1.5',
     license: 'Apache-2.0 (as published by Comfy-Org). Review the ACE-Step 1.5 model card before use.',
-    install: ['Download checkpoints/ace_step_1.5_turbo_aio.safetensors (about 10 GB) from Comfy-Org/ACE-Step-1.5 to ComfyUI/models/checkpoints/.']
+    install: ['Sound Studio downloads this file for you after you confirm. To do it yourself instead, download checkpoints/ace_step_1.5_turbo_aio.safetensors (about 10 GB) from Comfy-Org/ACE-Step-1.5 to ComfyUI/models/checkpoints/.']
   },
   'ace-step-v1-3.5b': {
     id: 'ace-step-v1-3.5b',
@@ -90,7 +91,7 @@ export const modelProfiles: Record<ModelProfileId, ModelProfile> = {
     requiredNodes: ['CheckpointLoaderSimple', 'ModelSamplingSD3', 'TextEncodeAceStepAudio', 'ConditioningZeroOut', 'EmptyAceStepLatentAudio', 'KSampler', 'VAEDecodeAudio', 'SaveAudio'],
     source: 'https://huggingface.co/Comfy-Org/ACE-Step_ComfyUI_repackaged',
     license: 'Apache-2.0. Review the model card before use.',
-    install: ['Download all_in_one/ace_step_v1_3.5b.safetensors to ComfyUI/models/checkpoints/ace_step_v1_3.5b.safetensors.']
+    install: ['Sound Studio downloads this file for you after you confirm. To do it yourself instead, download all_in_one/ace_step_v1_3.5b.safetensors to ComfyUI/models/checkpoints/ace_step_v1_3.5b.safetensors.']
   },
   'mirelo-sfx-2.0': {
     id: 'mirelo-sfx-2.0',
@@ -401,11 +402,12 @@ export function assessReadiness(choice: ModelChoice, status: BackendStatus | nul
   }
   let textEncoder: string | null = null
   if (profile.textEncoder) {
-    textEncoder = pick(choice.textEncoder, status.textEncoders, profile.textEncoder.pattern)
+    // Another model's text encoder always fails in the sampler (mismatched tensor sizes), so only matching files count.
+    const { pattern } = profile.textEncoder
+    const chosen = pattern.test(choice.textEncoder) ? choice.textEncoder : ''
+    textEncoder = pick(chosen, status.textEncoders.filter(name => pattern.test(name)), pattern)
     if (!textEncoder) issues.push('No T5-base text encoder found in ComfyUI/models/text_encoders.')
-    else if (choice.textEncoder && choice.textEncoder !== textEncoder) issues.push(`The selected text encoder "${choice.textEncoder}" is no longer available.`)
-    const wrong = mismatch(textEncoder, status.textEncoders, profile.textEncoder.pattern, 'text encoder', profile.label)
-    if (wrong) issues.push(wrong)
+    else if (chosen && chosen !== textEncoder) issues.push(`The selected text encoder "${chosen}" is no longer available.`)
     if (status.availableNodes.includes('CLIPLoader') && !status.clipTypes.includes(profile.textEncoder.clipType)) {
       issues.push(`This ComfyUI version's CLIPLoader does not support "${profile.textEncoder.clipType}". Update ComfyUI.`)
     }

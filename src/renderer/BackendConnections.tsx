@@ -3,6 +3,7 @@ import { AlertTriangle, Check, CircleAlert, FolderOpen, LoaderCircle, RefreshCw,
 import type { BackendCheck } from '../shared/backendChecks'
 import type { Workspace } from '../shared/workspace'
 import type { Backend } from './useBackend'
+import { ModelDownloadPanel } from './ModelDownloadPanel'
 
 interface Props {
   backend: Backend
@@ -12,7 +13,8 @@ interface Props {
 }
 
 const actionLabel: Record<NonNullable<BackendCheck['action']>, string> = {
-  'choose-folder': 'Choose folder', start: 'Start', 'install-node': 'Install', restart: 'Restart ComfyUI', 'models-effects': 'Model Settings', 'models-music': 'Model Settings'
+  'choose-folder': 'Choose folder', start: 'Start', 'install-node': 'Install', restart: 'Restart ComfyUI', 'models-effects': 'Model Settings', 'models-music': 'Model Settings',
+  'download-effects': 'Download', 'download-music': 'Download'
 }
 
 /** Backend connections: one-click start for the user's local ComfyUI and readiness checks for everything generation needs. */
@@ -40,6 +42,8 @@ export function BackendConnections({ backend, checks, storageError, onModels }: 
       case 'restart': return void restart()
       case 'models-effects': return onModels('effects')
       case 'models-music': return onModels('music')
+      case 'download-effects': return void backend.downloadModels(backend.missingModels.effects)
+      case 'download-music': return void backend.downloadModels(backend.missingModels.music)
     }
   }
 
@@ -73,6 +77,7 @@ export function BackendConnections({ backend, checks, storageError, onModels }: 
       ? <p className="warning-text" role="alert"><AlertTriangle size={14} /> {backend.launcherError}</p>
       : launcher?.message && <p className={launcher.phase === 'exited' ? 'warning-text' : 'field-hint'} role="status">
         {launcher.phase === 'exited' && <AlertTriangle size={14} />} {launcher.message}</p>}
+    <ModelDownloadPanel backend={backend} items={[...backend.missingModels.effects, ...backend.missingModels.music]} />
 
     <div className="section-heading checks-heading"><span className="section-kicker">READINESS CHECKS</span>
       <button className="text-button" disabled={checking || starting || busy} onClick={() => void refresh()}><RefreshCw size={13} className={checking ? 'spin' : ''} /> Refresh</button></div>
@@ -85,6 +90,6 @@ export function BackendConnections({ backend, checks, storageError, onModels }: 
     <div className="connection-row"><span>Prompt drafts</span><span className="blue-text">{storageError ? 'In memory only' : 'Saved locally'}</span></div>
     <div className="connection-row"><span>Takes</span><span>Saved locally ({backend.takes.length})</span></div>
     <div className="connection-row"><span>Cloud partner models</span><span className={backend.cloud?.enabled ? 'warning-inline' : ''}>{backend.cloud?.enabled ? 'Enabled' : 'Off'}</span></div>
-    <p className="fine-print">Sound Studio runs ComfyUI on this device only and stops it when you quit. A ComfyUI you started yourself is never stopped. Starting ComfyUI also installs Sound Studio's small WAV output node into its custom_nodes folder.</p>
+    <p className="fine-print">Sound Studio runs ComfyUI on this device only and stops it when you quit. A ComfyUI you started yourself is never stopped. Starting ComfyUI also installs Sound Studio's small WAV output node into its custom_nodes folder and offers to download any models you are missing.</p>
   </div>
 }

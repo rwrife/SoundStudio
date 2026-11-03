@@ -14,6 +14,8 @@ import {
 import { effectCategories, examples, musicGenres, musicKeys, musicMoods, steps, type Draft, type Step, type Workspace } from '../shared/workspace'
 import { Dialog } from './Dialog'
 import { BackendConnections } from './BackendConnections'
+import { ModelDownloadPanel } from './ModelDownloadPanel'
+import { totalBytes } from '../shared/modelDownloads'
 import { backendChecks, backendSummary } from '../shared/backendChecks'
 import { executionBadge, ModelSettings } from './ModelSettings'
 import { TakePlayer } from './TakePlayer'
@@ -126,14 +128,16 @@ export function App() {
 
   const launcher = backend.launcher
   const comfyStarting = launcher?.phase === 'starting'
-  const checks = backendChecks({ connection: backend.connection, launcher, models: backend.settings.models, readiness: backend.readiness })
+  const missingHere = backend.missingModels[workspace]
+  const checks = backendChecks({ connection: backend.connection, launcher, models: backend.settings.models, readiness: backend.readiness,
+    downloads: { effects: totalBytes(backend.missingModels.effects), music: totalBytes(backend.missingModels.music) }, downloading: backend.download.phase === 'downloading' })
   const summary = backendSummary(checks, launcher?.phase)
   const blockingHere = checks.filter(check => check.status === 'blocked' && check.id !== (workspace === 'music' ? 'effects' : 'music'))
   const backendLabel = backend.available ? summary.label : 'Desktop app required'
   const modelSummary = `${profile.execution === 'local' ? 'Local' : profile.execution === 'cloud' ? 'Cloud' : readiness.remote ? 'Cloud workflow' : 'Workflow'} / ${choice.workflow && profile.execution === 'workflow' ? choice.workflow.name : profile.label}`
   const generateReason = !backend.available ? 'Generation needs the desktop app.'
     : !connected ? 'Connect to ComfyUI to generate.'
-    : !readiness.ready ? 'Finish model setup to generate.'
+    : !readiness.ready ? (backend.download.phase === 'downloading' && missingHere.length ? 'Generation is ready once the download finishes.' : missingHere.length ? 'Download the model to generate.' : 'Finish model setup to generate.')
     : !plan.request ? plan.problems[0]
     : activeJob ? 'A take is being generated.'
     : readiness.remote ? `Sends your prompt to ${profile.provider?.name ?? 'a partner service'}${profile.provider ? `. About $${estimateCostUsd(profile, plan.request.durationSeconds).toFixed(2)}` : ''}.`
@@ -237,8 +241,9 @@ export function App() {
                 <div className="summary-tags"><span>{draft.category}</span><span>{draft.duration || '--'} sec</span>{isMusic && <span>{draft.tempo} BPM</span>}{isMusic && profile.supportsKey && <span>{draft.musicKey}</span>}</div>
               </div>
               <button className="text-button" onClick={() => selectStep('brief')}>Edit your brief <ArrowRight size={14} /></button>
+              <ModelDownloadPanel backend={backend} items={missingHere} />
               {(!readiness.ready || !plan.request) && <ul className="issue-list" aria-label="Before you generate">
-                {[...readiness.issues, ...(plan.request ? [] : plan.problems.filter(problem => readiness.ready || !problem.startsWith('Select an installed')))].map(issue => <li key={issue}><AlertTriangle size={13} /> {issue}</li>)}
+                {[...readiness.issues.filter(issue => !(missingHere.length && /^No .* found in ComfyUI\/models/.test(issue))), ...(plan.request ? [] : plan.problems.filter(problem => readiness.ready || !problem.startsWith('Select an installed')))].map(issue => <li key={issue}><AlertTriangle size={13} /> {issue}</li>)}
               </ul>}
               {latestJob && <JobCard job={latestJob} onCancel={() => void backend.cancel(latestJob.id).catch(error => setFeedback({ workspace, error: true, text: String(error instanceof Error ? error.message : error) }))}
                 onReview={() => selectStep('review')} />}

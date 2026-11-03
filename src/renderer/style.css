@@ -249,6 +249,18 @@ textarea.lyrics { min-height: 150px; font-family: Consolas, monospace; }
 .issue-list { list-style: none; padding: 0; margin: 14px 0; display: grid; gap: 8px; }
 .issue-list li { display: flex; gap: 8px; align-items: flex-start; color: var(--warning); font-size: 10px; line-height: 1.6; }
 .issue-list svg { flex-shrink: 0; margin-top: 2px; }
+.download-panel { margin: 14px 0; display: grid; gap: 8px; }
+.download-panel .primary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; margin-top: 0; }
+.download-panel .field-hint, .download-panel .warning-text, .download-panel .success-text { margin: 0; }
+.download-heading { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--accent-primary); }
+.download-heading strong { flex: 1; min-width: 0; color: var(--text-primary); font-weight: 500; overflow-wrap: anywhere; }
+.download-heading .text-button { margin: 0; }
+.advanced-settings { margin-top: 22px; border-top: 1px solid var(--border-subtle); padding-top: 14px; }
+.advanced-settings > summary { display: flex; align-items: center; gap: 8px; cursor: pointer; color: var(--text-primary); font-size: 12px; font-weight: 600; list-style: none; padding: 6px 0; }
+.advanced-settings > summary::-webkit-details-marker { display: none; }
+.advanced-settings > summary span { color: var(--text-subtle); font-weight: 400; font-size: 11px; }
+.advanced-settings > summary:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+.advanced-settings[open] > summary { margin-bottom: 4px; }
 
 .job-card { border: 1px solid var(--border-subtle); background: var(--surface-app); border-radius: 7px; padding: 14px; margin: 16px 0; font-size: 11px; display: grid; gap: 8px; }
 .job-card.failed { border-color: #6b5634; }

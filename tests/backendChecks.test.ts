@@ -55,3 +55,15 @@ test('a missing folder, output node or model is reported with the action that fi
   assert.equal(noModel.music.action, 'models-music')
   assert.match(noModel.music.detail, /ACE-Step 1.5 Turbo: No ACE-Step 1.5 checkpoint found\./)
 })
+
+test('a downloadable missing model offers Download, then shows it downloading', () => {
+  const notFound: Readiness = { ...blocked, issues: ['No ACE-Step 1.5 Turbo checkpoint found in ComfyUI/models/checkpoints.'] }
+  const offer = byId(backendChecks(input({ readiness: { effects: ready, music: notFound }, downloads: { effects: 0, music: 10025478736 } })))
+  assert.equal(offer.music.status, 'blocked')
+  assert.equal(offer.music.action, 'download-music')
+  assert.equal(offer.music.detail, 'ACE-Step 1.5 Turbo is not downloaded yet (9.3 GB).')
+
+  const running = byId(backendChecks(input({ readiness: { effects: ready, music: notFound }, downloads: { effects: 0, music: 10025478736 }, downloading: true })))
+  assert.equal(running.music.status, 'pending')
+  assert.equal(running.music.action, undefined)
+})
