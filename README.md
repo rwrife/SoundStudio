@@ -33,7 +33,7 @@ Sketch the crackle of a campfire, the perfect interface chime, the soundtrack to
 |---|---|---|---|
 | Effects | Stable Audio Open 1.0 | Mirelo SFX 2.0, ByteDance Seed Audio 1.0 | Any ComfyUI audio workflow |
 | Music | ACE-Step 1.5 Turbo, ACE-Step v1 3.5B, Stable Audio Open 1.0 | None | MusicGen, DiffRhythm 2 and other custom nodes |
-| Decomposer | Librosa DSP, HTDemucs, Whisper tiny/base, Basic Pitch | None | Managed CPU runtime |
+| Decomposer | Librosa DSP, HTDemucs, Whisper tiny/base, Basic Pitch, Qwen2.5-Omni Q4 | None | Managed CPU runtime |
 - **On this device:** open-weight models run by ComfyUI's built-in nodes. Sound Studio downloads the ones you need from Hugging Face after you confirm, and checks each file's SHA-256 before using it. Stable Audio Open and T5-base for Effects are about 5.4 GB; ACE-Step 1.5 Turbo for Music is about 9.3 GB.
 - **Cloud partner models:** run by a third-party service through ComfyUI partner nodes. They need your explicit opt-in and a Comfy.org API key, encrypted on this device. Charges apply, and an estimate is shown before you generate.
 - **Your workflow:** export any working ComfyUI audio workflow in API format, add placeholders such as `{{prompt}}` and `{{seconds}}`, and import it.
@@ -46,7 +46,7 @@ Sketch the crackle of a campfire, the perfect interface chime, the soundtrack to
 
 *Actual HTDemucs outputs from **Let's Go Fishin' by Karissa Hobbs**, [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/), via [librosa's licensed example collection](https://librosa.org/data/audio/Karissa_Hobbs_-_Lets_Go_Fishin.txt). No audio or weights are committed. Estimates and sung lyrics need human review.*
 
-The optional **Qwen2-Audio** caption adapter describes short audio windows, but real caption inference remains **unverified/resource-blocked** on the 32 GiB development machine. It is not downloaded implicitly and has no cloud fallback. See the [Decomposer guide](docs/DECOMPOSER.md) for runtime requirements, limitations and real-output evidence.
+Optional **Qwen2.5-Omni Q4** descriptions add timed, qualitative observations about audible sources, performance, energy and changes. This explicitly installed local profile needs existing Windows C++ build tools and 10 GiB available RAM; descriptions remain editable estimates. The separate full-precision Qwen2-Audio profile remains unverified. Neither profile downloads implicitly or falls back to cloud inference. See the [Decomposer guide](docs/DECOMPOSER.md) for setup, limitations and real-output evidence.
 
 ## Basic requirements
 

@@ -24,7 +24,7 @@ HAS_CORE = all(importlib.util.find_spec(name) is not None for name in ("av", "nu
 
 def options(**updates):
     value = {"start": 0, "end": 4, "stems": [], "lyrics": "none",
-             "wordTimestamps": False, "notes": False, "captions": False}
+             "wordTimestamps": False, "notes": False, "captions": False, "captionModel": "captions"}
     value.update(updates)
     return value
 
@@ -73,7 +73,7 @@ class ContractTests(WorkspaceTest):
             options(start=-1), options(end=601), options(end=0),
             options(start=math.nan), options(end=math.inf), options(notes=1),
             options(stems=["vocals", "vocals"]), options(stems=["../../outside"]),
-            options(stems=[["vocals"]]), options(lyrics="large"), {**options(), "extra": True},
+            options(stems=[["vocals"]]), options(lyrics="large"), options(captionModel="automatic"), {**options(), "extra": True},
         ]
         for value in invalid:
             with self.subTest(value=value), self.assertRaises(worker.WorkerError):
@@ -592,7 +592,7 @@ class DecoderAndDSPTests(WorkspaceTest):
         self.assertEqual(len(diagnosed), 1)
         value = diagnosed[0]["value"]
         self.assertEqual(set(value), {"python", "profiles"})
-        self.assertEqual(len(value["profiles"]), 6)
+        self.assertEqual({profile["id"] for profile in value["profiles"]}, {"core", *worker.PROFILES})
         self.assertTrue(value["profiles"][0]["ready"], value["profiles"][0]["detail"])
         self.assertTrue(all(not profile["ready"] for profile in value["profiles"][1:]))
         source = self.write_audio("source.wav", duration=5)

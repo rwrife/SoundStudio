@@ -8,6 +8,7 @@ import gc
 import hashlib
 import importlib
 import importlib.metadata
+import importlib.util
 import json
 import math
 from numbers import Real
@@ -77,6 +78,11 @@ PROFILES = {
 _protocol = sys.stdout
 _emit_lock = threading.Lock()
 
+_native_spec = importlib.util.spec_from_file_location("soundstudio_native_captions", Path(__file__).with_name("native_captions.py"))
+native = importlib.util.module_from_spec(_native_spec)
+_native_spec.loader.exec_module(native)
+PROFILES[native.PROFILE] = native.PROFILE_SPEC
+
 
 class WorkerError(Exception):
     """Actionable error safe to display without exposing managed file paths."""
@@ -106,7 +112,7 @@ def exact_keys(value, keys, label: str) -> None:
 
 
 def validate_options(options: dict) -> dict:
-    exact_keys(options, ("start", "end", "stems", "lyrics", "wordTimestamps", "notes", "captions"), "analysis options")
+    exact_keys(options, ("start", "end", "stems", "lyrics", "wordTimestamps", "notes", "captions", "captionModel"), "analysis options")
     check(number(options["start"], 0, MAX_DURATION) and number(options["end"], 0, MAX_DURATION),
           "Excerpt timestamps must be finite source seconds from 0 to 1800.")
     check(0 < options["end"] - options["start"] <= MAX_EXCERPT, "Select an excerpt of up to 600 seconds.")
@@ -114,6 +120,7 @@ def validate_options(options: dict) -> dict:
     check(isinstance(stems, list) and len(stems) <= 4 and all(s in STEMS for s in stems)
           and len(set(stems)) == len(stems), "Select unique stems: vocals, drums, bass, other.")
     check(options["lyrics"] in ("none", "tiny", "base"), "Choose lyrics none, tiny, or base.")
+    check(options["captionModel"] in ("captions", "captions-native"), "Choose a supported caption model explicitly.")
     for key in ("wordTimestamps", "notes", "captions"):
         check(type(options[key]) is bool, f"{key} must be a boolean.")
     return options
@@ -423,6 +430,8 @@ def musical_analysis(audio, sample_rate: int, options: dict) -> dict:
 def read_manifest(models: Path, profile: str) -> tuple[Path, dict]:
     spec = PROFILES[profile]
     root = child_file(models, profile)
+    if profile == native.PROFILE:
+        return root, native.read_manifest(root)
     manifest_path = child_file(root, "manifest.json")
     check(manifest_path.is_file(), f"{profile}: model is not installed. Use Model Settings to install it explicitly.")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -448,7 +457,9 @@ def read_manifest(models: Path, profile: str) -> tuple[Path, dict]:
 
 def import_profile(profile: str) -> None:
     check_versions(PROFILES[profile]["packages"])
-    if profile == "stems":
+    if profile == native.PROFILE:
+        native.platform_check()
+    elif profile == "stems":
         importlib.import_module("demucs.hf")
         importlib.import_module("demucs.apply")
     elif profile.startswith("lyrics-"):
@@ -521,7 +532,10 @@ def diagnose(models: Path) -> dict:
         try:
             root, _ = read_manifest(models, profile)
             import_profile(profile)
-            if profile == "captions":
+            if profile == native.PROFILE:
+                profiles.append({"id": profile, "ready": True, "detail": "Pinned model sizes, native build identity and helper checksums verified. Each inference window separately requires 10 GiB available RAM; qualitative estimates need review."})
+                continue
+            elif profile == "captions":
                 check_caption_memory()
                 model = check_caption_files(root)
                 detail = "Local files, shard headers, config, processor, and available RAM checked. Full CPU model loading is deferred; approximately 40 GiB RAM recommended."
@@ -823,8 +837,11 @@ def stage_provenance(stage: str, profile: str | None, seconds: float, options: d
     }
 
 
-def analyze(source: Path, output: Path, models: Path, options: dict) -> dict:
+def analyze(source: Path, output: Path, models: Path, options: dict, *, defer_native=False) -> dict:
     options = validate_options(options)
+    native_selected = options["captions"] and options["captionModel"] == native.PROFILE
+    check(not native_selected or defer_native, "Native captions require the managed phased analysis job; no caption was silently skipped.")
+    check(not native_selected or options["end"] - options["start"] >= 1, "Native captions require an excerpt of at least one second.")
     selected = []
     if options["stems"]:
         selected.append("stems")
@@ -833,7 +850,7 @@ def analyze(source: Path, output: Path, models: Path, options: dict) -> dict:
     if options["notes"]:
         selected.append("notes")
     if options["captions"]:
-        selected.append("captions")
+        selected.append(options["captionModel"])
     progress(0, "Checking all selected local model profiles")
     roots = {}
     for profile in selected:
@@ -842,6 +859,7 @@ def analyze(source: Path, output: Path, models: Path, options: dict) -> dict:
         if profile == "captions":
             check_caption_memory()
         roots[profile] = root
+    selected = [profile for profile in selected if profile != native.PROFILE]
     # No outputs or expensive DSP are started until every selected profile exists.
     audio, sample_rate = read_excerpt(source, options)
     names = [f"{stem}.wav" for stem in options["stems"]] + (["notes.mid"] if options["notes"] else [])
@@ -913,7 +931,7 @@ def analyze(source: Path, output: Path, models: Path, options: dict) -> dict:
             check(not (output / name).exists(), "The job destination changed during analysis.")
             (scratch / name).rename(output / name)
             published.append(output / name)
-        progress(1, "Analysis complete; estimates ready for review")
+        progress(1, "Audio analysis finished; native descriptions pending" if native_selected else "Analysis complete; estimates ready for review")
         return result
     except BaseException:
         for path in published:
@@ -989,6 +1007,8 @@ def download_file(url: str, destination: Path, expected_size: int, expected_hash
 
 def acquire(profile: str, models: Path) -> dict:
     check(profile in PROFILES, "Choose an optional model profile; the core profile needs only its pinned Python dependencies.")
+    if profile == native.PROFILE:
+        return native.acquire(models, download_file, progress)
     check_versions(PROFILES[profile]["packages"])
     spec = PROFILES[profile]
     destination = child_file(models, profile)
@@ -1083,7 +1103,7 @@ def acquire(profile: str, models: Path) -> dict:
 
 def safe_error(error: Exception) -> str:
     import urllib.error
-    if isinstance(error, WorkerError):
+    if isinstance(error, (WorkerError, native.NativeCaptionError)):
         return str(error)[:2000]
     if isinstance(error, json.JSONDecodeError):
         return "Send exactly one valid JSON request, then close stdin."
@@ -1112,6 +1132,9 @@ def dispatch(request: dict) -> dict:
     fields = {
         "import": ("command", "source", "output"),
         "analyze": ("command", "source", "output", "models", "options"),
+        "analyze-base": ("command", "source", "output", "models", "options"),
+        "native-describe": ("command", "source", "output", "models", "options"),
+        "native-prepare": ("command", "source", "output", "models", "options"),
         "diagnose": ("command", "models"),
         "acquire": ("command", "profile", "models"),
     }
@@ -1123,12 +1146,19 @@ def dispatch(request: dict) -> dict:
     with offline():
         if command == "diagnose":
             return diagnose(local_path(request["models"], directory=True, create=True))
-        check_core()
         source = local_path(request["source"])
         output = local_path(request["output"], directory=True, create=True)
+        if command == "native-describe":
+            options = validate_options(request["options"])
+            check(options["captions"] and options["captionModel"] == native.PROFILE, "Native descriptions were not selected.")
+            return native.describe(source, output, local_path(request["models"], directory=True), options, Path(__file__), progress)
+        check_core()
         if command == "import":
             return import_audio(source, output)
-        return analyze(source, output, local_path(request["models"], directory=True, create=True), request["options"])
+        if command == "native-prepare":
+            return native.prepare(source, output, validate_options(request["options"]), read_excerpt)
+        return analyze(source, output, local_path(request["models"], directory=True, create=True),
+                       request["options"], defer_native=command == "analyze-base")
 
 
 def main() -> int:

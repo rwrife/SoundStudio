@@ -396,7 +396,7 @@ try {
   assert.equal((await readdir(takesDir)).filter(name => name.endsWith('.wav')).length, 3)
   await page.keyboard.press('Escape')
 
-  await page.waitForFunction(() => JSON.parse(localStorage.getItem('sound-studio.workspace.v3')).workspace === 'music')
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('sound-studio.workspace.v4')).workspace === 'music')
   await app.close()
   app = undefined
   page = await launch()
@@ -425,14 +425,14 @@ try {
   await page.getByLabel('Describe your music').waitFor()
   assert.match(await page.getByLabel('Describe your music').inputValue(), /lo-fi/)
 
-  await page.evaluate(() => localStorage.setItem('sound-studio.workspace.v3', '{broken'))
+  await page.evaluate(() => localStorage.setItem('sound-studio.workspace.v4', '{broken'))
   await page.reload()
   await page.locator('.error-banner').waitFor()
   assert.match(await page.locator('.error-banner').innerText(), /Could not load/)
-  assert.equal(await page.evaluate(() => localStorage.getItem('sound-studio.workspace.v3')), '{broken')
+  assert.equal(await page.evaluate(() => localStorage.getItem('sound-studio.workspace.v4')), '{broken')
   await page.getByLabel('Describe your sound').fill('Unsaved but still editable')
   assert.match(await page.locator('.saved-state:visible').innerText(), /memory only/)
-  assert.equal(await page.evaluate(() => localStorage.getItem('sound-studio.workspace.v3')), '{broken')
+  assert.equal(await page.evaluate(() => localStorage.getItem('sound-studio.workspace.v4')), '{broken')
 
   // The dialog's start button, and quitting stops only the ComfyUI that Sound Studio started.
   if (fakeComfy) {

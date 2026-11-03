@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ArrowRight, AudioLines, FolderOpen, Layers3, Pause, Play, Settings2 } from 'lucide-react'
 import {
-  defaultOptions, mediaUrl, optionsSchema, reviewedBrief, reviewSchema,
+  captionLabels, captionModelSchema, defaultOptions, mediaUrl, optionsSchema, reviewedBrief, reviewSchema,
   type AnalysisJob, type Asset, type ExportKind, type LibrarySnapshot, type Profile, type Review, type RuntimeStatus, type Stem
 } from '../shared/decomposer'
 import { buildVariationBrief, decomposerFocuses, examples, steps, type DecompositionDraft, type Draft } from '../shared/workspace'
@@ -32,7 +32,7 @@ export function DecomposerModels() {
   }
   return <section aria-label="Local decomposition models">
     <h3 className="model-heading">Local music decomposition</h3>
-    <p className="dialog-intro">Install only what you need. Downloads contact Python package/model hosts; your audio and prompts are never uploaded. Analysis is CPU-only and network-blocked after acquisition.</p>
+    <p className="dialog-intro">Install only what you need. Downloads contact upstream package, source and model hosts; your audio and prompts are never uploaded. Analysis is local CPU-only. Native captions require existing x64 C++ build tools, CMake/Ninja and Git; setup never installs global tools.</p>
     {!api && <p role="alert">Model setup requires the Electron desktop app, not the web preview.</p>}
     {error && <p className="error-banner" role="alert">{error}</p>}
     {status && <>
@@ -165,7 +165,7 @@ function ReviewEditor({ job, onSave, onDirty }: { job: AnalysisJob; onSave: (rev
       {review[kind].map((line, index) => <div className="timed-line" key={index}>
         <input aria-label={`${kind} ${index + 1} start`} type="number" step="0.01" value={line.start} onChange={event => update({ [kind]: review[kind].map((item, i) => i === index ? { ...item, start: Number(event.target.value) } : item) })} />
         <input aria-label={`${kind} ${index + 1} end`} type="number" step="0.01" value={line.end} onChange={event => update({ [kind]: review[kind].map((item, i) => i === index ? { ...item, end: Number(event.target.value) } : item) })} />
-        <textarea aria-label={`${kind} ${index + 1} text`} value={line.text} maxLength={20000} onChange={event => update({ [kind]: review[kind].map((item, i) => i === index ? { ...item, text: event.target.value } : item) })} />
+        <textarea aria-label={`${kind} ${index + 1} text`} rows={kind === 'descriptions' ? 10 : 2} value={line.text} maxLength={20000} onChange={event => update({ [kind]: review[kind].map((item, i) => i === index ? { ...item, text: event.target.value } : item) })} />
         <button aria-label={`Remove ${kind} ${index + 1}`} onClick={() => update({ [kind]: review[kind].filter((_item, i) => i !== index) })}>Remove</button>
       </div>)}
       <button className="text-button" onClick={() => update({ [kind]: [...review[kind], { start: review[kind].at(-1)?.end ?? job.options.start, end: job.options.end, text: '' }] })}>Add {kind} line</button>
@@ -228,7 +228,7 @@ export function Decomposer({ draft, config, updateDraft, updateConfig, openModel
     if (!api || !asset) throw new Error('Import a reference song first.')
     const options = optionsSchema.parse({
       start: config.start, end: config.end, stems: config.stems, lyrics: config.lyrics,
-      notes: config.notes, captions: config.captions, wordTimestamps: config.wordTimestamps
+      notes: config.notes, captions: config.captions, captionModel: config.captionModel, wordTimestamps: config.wordTimestamps
     })
     const next = await api.start({ assetId: asset.id, title: draft.title || asset.name.slice(0, 120), options })
     setLibrary(await api.library())
@@ -274,10 +274,16 @@ export function Decomposer({ draft, config, updateDraft, updateConfig, openModel
         </select>
         <label className="check-field"><input type="checkbox" checked={config.wordTimestamps} onChange={event => updateConfig({ wordTimestamps: event.target.checked })} />Word-level timing estimates</label>
         <label className="check-field"><input type="checkbox" checked={config.notes} onChange={event => updateConfig({ notes: event.target.checked })} />Basic Pitch notes / MIDI</label>
-        <label className="check-field"><input type="checkbox" checked={config.captions} onChange={event => updateConfig({ captions: event.target.checked })} />Qwen2-Audio descriptions</label>
+        <label className="check-field"><input type="checkbox" checked={config.captions} onChange={event => updateConfig({ captions: event.target.checked })} />Audio-backed descriptions</label>
+        <label className="field-label" htmlFor="caption-model">Description model</label>
+        <select id="caption-model" value={config.captionModel} onChange={event => updateConfig({ captionModel: captionModelSchema.parse(event.target.value) })}>
+          <option value="captions">Qwen2-Audio full precision (unverified)</option>
+          <option value="captions-native">Qwen2.5-Omni Q4 (qualitative estimates)</option>
+        </select>
+        <small>Models can misidentify sources. Native captions need an excerpt of at least one second and 10 GiB available RAM; incomplete output fails explicitly. No model is downloaded or substituted here.</small>
       </div>
       <div className="action-area">
-        <button className="model-summary" onClick={openModels}><span>Local / {config.captions ? 'Qwen2-Audio' : config.stems.length ? 'HTDemucs' : config.lyrics !== 'none' ? `Whisper ${config.lyrics}` : 'DSP (no ML model)'}</span><Settings2 size={14} /></button>
+        <button className="model-summary" onClick={openModels}><span>Local / {config.captions ? captionLabels[config.captionModel] : config.stems.length ? 'HTDemucs' : config.lyrics !== 'none' ? `Whisper ${config.lyrics}` : 'DSP (no ML model)'}</span><Settings2 size={14} /></button>
         <button className="primary full" disabled={!api || busy || !asset || reviewDirty} onClick={() => { selectStep('generate'); void action(analyze) }}>Analyse selected excerpt <ArrowRight size={16} /></button>
         <p className="action-note">Selected missing models fail explicitly. Nothing downloads when analysis starts.</p>
         <button className="text-button" onClick={openModels}>Runtime & model readiness</button>
@@ -303,7 +309,7 @@ export function Decomposer({ draft, config, updateDraft, updateConfig, openModel
       {job && <section className="job-card" aria-label="Analysis job">
         <div className="section-heading"><h3>{job.title || 'Untitled analysis'}</h3><strong>{job.state}</strong></div>
         <progress value={job.progress} max="1" aria-label="Analysis progress" /><p role="status">{job.stage}</p>
-        <p className="fine-print">Run: {job.options.start}-{job.options.end} sec; stems {job.options.stems.join(', ') || 'off'}; lyrics {job.options.lyrics}; MIDI {job.options.notes ? 'on' : 'off'}; audio descriptions {job.options.captions ? 'on' : 'off'}. Current controls do not change this saved run.</p>
+        <p className="fine-print">Run: {job.options.start}-{job.options.end} sec; stems {job.options.stems.join(', ') || 'off'}; lyrics {job.options.lyrics}; MIDI {job.options.notes ? 'on' : 'off'}; descriptions {job.options.captions ? captionLabels[job.options.captionModel] : 'off'}. Current controls do not change this saved run.</p>
         {running && <button className="secondary-button" onClick={() => { void action(async () => { await api?.cancel(job.id); setLibrary(await api!.library()) }) }}>Cancel analysis</button>}
         {job.error && <p className="error-banner" role="alert">{job.error}</p>}
         {job.raw?.warnings.map((warning, index) => <p className="fine-print" key={index}>{warning}</p>)}

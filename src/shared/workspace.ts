@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { defaultOptions, idSchema, stemSchema } from './decomposer'
+import { captionModelSchema, defaultOptions, idSchema, stemSchema } from './decomposer'
 
 /** Workspaces that generate audio. Generation, model, readiness, download and IPC code use only these. */
 export type Workspace = 'effects' | 'music'
@@ -47,7 +47,7 @@ export interface Draft {
   step: Step
 }
 
-export const studioStateVersion = 3
+export const studioStateVersion = 4
 
 export interface StudioState {
   version: typeof studioStateVersion
@@ -56,12 +56,13 @@ export interface StudioState {
   decomposition: DecompositionDraft
 }
 
-const decompositionDraftSchema = z.object({
+const legacyDecompositionDraftSchema = z.object({
   assetId: idSchema.nullable(), analysisId: idSchema.nullable(),
   start: z.number().finite().min(0).max(1800), end: z.number().finite().min(0).max(1800),
   stems: z.array(stemSchema).max(4),
   lyrics: z.enum(['none', 'tiny', 'base']), wordTimestamps: z.boolean(), notes: z.boolean(), captions: z.boolean()
 }).strict()
+const decompositionDraftSchema = legacyDecompositionDraftSchema.extend({ captionModel: captionModelSchema })
 export type DecompositionDraft = z.infer<typeof decompositionDraftSchema>
 
 export function createInitialState(): StudioState {
@@ -137,22 +138,24 @@ function migrateDraft(value: unknown, addGenerationFields: boolean) {
 
 export function parseStudioState(serialized: string): StudioState {
   const value: unknown = JSON.parse(serialized)
-  if (!isRecord(value) || ![1, 2, studioStateVersion].includes(Number(value.version)) || typeof value.version !== 'number') throw new Error('The saved draft has an unsupported format.')
+  if (!isRecord(value) || ![1, 2, 3, studioStateVersion].includes(Number(value.version)) || typeof value.version !== 'number') throw new Error('The saved draft has an unsupported format.')
   const workspace = workspaces.find(item => item.id === value.workspace)?.id
   const initial = createInitialState()
-  // Two v2 shapes existed on parallel branches. Preserve either before writing the unified v3 key.
+  // Both parallel v2 shapes and v3 retain their original caption-model choice.
   const hasAnalysisDraft = value.decomposition !== undefined
   const addGenerationFields = value.version === 1 || (value.version === 2 && hasAnalysisDraft)
   const drafts = isRecord(value.drafts) ? {
     effects: migrateDraft(value.drafts.effects, addGenerationFields),
     music: migrateDraft(value.drafts.music, addGenerationFields),
-    decomposer: value.drafts.decomposer === undefined && value.version < studioStateVersion ? initial.drafts.decomposer : migrateDraft(value.drafts.decomposer, addGenerationFields)
+    decomposer: value.drafts.decomposer === undefined && value.version <= 2 ? initial.drafts.decomposer : migrateDraft(value.drafts.decomposer, addGenerationFields)
   } : undefined
   if (!workspace || !drafts || !isDraft(drafts.effects, 'effects') || !isDraft(drafts.music, 'music') || !isDraft(drafts.decomposer, 'decomposer')) {
     throw new Error('The saved draft has an unsupported format.')
   }
-  const decomposition = hasAnalysisDraft || value.version === studioStateVersion
-    ? decompositionDraftSchema.parse(value.decomposition)
+  const decomposition = hasAnalysisDraft || value.version >= 3
+    ? value.version === studioStateVersion
+      ? decompositionDraftSchema.parse(value.decomposition)
+      : { ...legacyDecompositionDraftSchema.parse(value.decomposition), captionModel: 'captions' as const }
     : value.drafts && isRecord(value.drafts) && value.drafts.decomposer !== undefined ? {
       ...initial.decomposition,
       stems: drafts.decomposer.loop ? ['vocals', 'drums', 'bass', 'other'] as const : [],

@@ -4,7 +4,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { basename, extname, join } from 'node:path'
 import { z } from 'zod'
 import {
-  assetSchema, audioMetadataSchema, idSchema, jobSchema, optionsSchema, resultSchema, reviewSchema,
+  assetSchema, audioMetadataSchema, idSchema, jobSchema, legacyOptionsSchema, optionsSchema, resultSchema, reviewSchema,
   reviewedBrief, type AnalysisJob, type Asset, type ExportKind, type LibrarySnapshot, type Review, type Stem
 } from '../shared/decomposer'
 import { LocalRuntime } from './runtime'
@@ -16,7 +16,18 @@ const assetRecordSchema = z.object({
 }).strict()
 type AssetRecord = z.infer<typeof assetRecordSchema>
 const artifactsSchema = z.partialRecord(z.enum(['vocals.wav', 'drums.wav', 'bass.wav', 'other.wav', 'notes.mid']), hashSchema)
-const jobRecordSchema = z.object({ version: z.literal(1), job: jobSchema, artifacts: artifactsSchema }).strict()
+const legacyJobRecordSchema = z.object({
+  version: z.literal(1),
+  job: jobSchema.omit({ options: true }).extend({ options: legacyOptionsSchema }),
+  artifacts: artifactsSchema
+}).strict().transform(record => ({
+  ...record, version: 2 as const,
+  job: { ...record.job, options: { ...record.job.options, captionModel: 'captions' as const } }
+}))
+const jobRecordSchema = z.union([
+  z.object({ version: z.literal(2), job: jobSchema, artifacts: artifactsSchema }).strict(),
+  legacyJobRecordSchema
+])
 type JobRecord = z.infer<typeof jobRecordSchema>
 const maximumSourceBytes = 512 * 1024 * 1024
 
@@ -174,7 +185,7 @@ export class AnalysisStore {
     if ([...this.jobs.values()].filter(item => ['queued', 'running'].includes(item.job.state)).length >= 10) throw new Error('The local queue is full (10 jobs).')
     const id = randomUUID()
     const job: AnalysisJob = { ...request, id, state: 'queued', progress: 0, stage: 'Queued', error: null, createdAt: new Date().toISOString(), raw: null, reviewed: null, revision: 0 }
-    const record: JobRecord = { version: 1, job, artifacts: {} }
+    const record: JobRecord = { version: 2, job, artifacts: {} }
     await mkdir(this.jobDir(id))
     await this.saveJob(record)
     this.jobs.set(id, record)
@@ -210,6 +221,8 @@ export class AnalysisStore {
         if (job.state === 'running') { job.progress = fraction; job.stage = stage }
       }, abort.signal))
       if (abort.signal.aborted) throw new Error('Cancelled')
+      await this.mediaFile(job.assetId, 'reference')
+      if (await fileHash(join(this.assetDir(job.assetId), asset.originalFile)) !== asset.asset.hash) throw new Error('The stored source changed during analysis. No result was published; import it again.')
       validateReview(reviewSchema.strip().parse(raw), job)
       for (const timestamps of [raw.beats, raw.energy.map(frame => frame.time)]) {
         if (timestamps.some((time, index) => time < job.options.start - 0.01 || time > job.options.end + 0.01 || (index > 0 && time < timestamps[index - 1]))) throw new Error('Worker returned out-of-range or unordered evidence timestamps.')

@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { AnalysisStore, lyricExport, validateWav } from '../src/main/analysis-store'
 import { command, LocalRuntime } from '../src/main/runtime'
-import { defaultOptions, optionsSchema, reviewedBrief, type AnalysisJob, type AnalysisResult } from '../src/shared/decomposer'
+import { defaultOptions, optionsSchema, resultSchema, reviewedBrief, type AnalysisJob, type AnalysisResult } from '../src/shared/decomposer'
 
 function wav() {
   const data = Buffer.alloc(44 + 44100 * 2)
@@ -45,9 +45,61 @@ async function eventually(check: () => boolean) {
   assert.fail('Timed out waiting for job transition')
 }
 test('strict analysis options reject paths, non-finite/out-of-bounds excerpts and unknown fields', () => {
-  for (const patch of [{ end: 0 }, { start: -1 }, { end: 601 }, { end: NaN }, { stems: ['../../file'] }, { source: 'C:\\private.wav' }]) {
+  for (const patch of [{ end: 0 }, { start: -1 }, { end: 601 }, { end: NaN }, { stems: ['../../file'] }, { source: 'C:\\private.wav' }, { end: .5, captions: true, captionModel: 'captions-native' }, { captionModel: 'automatic' }]) {
     assert.equal(optionsSchema.safeParse({ ...defaultOptions, ...patch }).success, false)
   }
+})
+test('native captions route through separate sequential processes and cannot publish a failed second phase', async () => {
+  class PhasedRuntime extends LocalRuntime {
+    calls: Record<string, unknown>[] = []
+    failCaptions = false
+    override async invokeWorker(input: Record<string, unknown>, progress: (fraction: number, stage: string) => void): Promise<unknown> {
+      this.calls.push(input)
+      progress(1, String(input.command))
+      if (input.command === 'native-describe') {
+        if (this.failCaptions) throw new Error('Incomplete native response (length)')
+        return { descriptions: [{ start: 0, end: 1, text: 'Contract routing fixture, not model evidence.' }], warnings: [], provenance: [] }
+      }
+      return structuredClone(result)
+    }
+  }
+  const runtime = new PhasedRuntime('unused', 'unused')
+  const input = { command: 'analyze', source: 'unchanged reference', output: 'same job', options: { ...defaultOptions, end: 1, captions: true, captionModel: 'captions-native' } }
+  const progress: number[] = []
+  const output = resultSchema.parse(await runtime.worker(input, fraction => progress.push(fraction)))
+  assert.deepEqual(runtime.calls.map(call => call.command), ['analyze-base', 'native-describe'])
+  assert.ok(runtime.calls.every(call => call.options === input.options && call.source === input.source && call.output === input.output))
+  assert.deepEqual(progress, [.45, 1])
+  assert.equal(output.descriptions.length, 1)
+  runtime.calls = []; runtime.failCaptions = true
+  await assert.rejects(runtime.worker(input), /Incomplete native/)
+  assert.deepEqual(runtime.calls.map(call => call.command), ['analyze-base', 'native-describe'])
+  runtime.calls = []
+  await runtime.worker({ ...input, options: { ...input.options, captionModel: 'captions' } })
+  assert.deepEqual(runtime.calls.map(call => call.command), ['analyze'])
+})
+test('a replaced source between analysis phases is not published as the original recording', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'decomposer-source-change-'))
+  class ChangingRuntime extends ContractRuntime {
+    override async worker(input: Record<string, unknown>): Promise<unknown> {
+      const value = await super.worker(input)
+      if (input.command === 'analyze') {
+        const replaced = wav(); replaced.writeInt16LE(100, 44)
+        await writeFile(String(input.source), replaced)
+      }
+      return value
+    }
+  }
+  const store = new AnalysisStore(join(root, 'data'), new ChangingRuntime(root, root))
+  try {
+    await store.initialize()
+    const source = join(root, 'source.wav'); await writeFile(source, wav())
+    const asset = await store.importFile(source)
+    await store.start({ assetId: asset.id, title: 'Integrity', options: { ...defaultOptions, end: 1 } })
+    await eventually(() => store.snapshot().jobs[0].state === 'failed')
+    assert.equal(store.snapshot().jobs[0].raw, null)
+    assert.match(store.snapshot().jobs[0].error ?? '', /replaced|changed/)
+  } finally { store.shutdown(); await rm(root, { recursive: true, force: true }) }
 })
 test('reviewed handoff retains long edited evidence without substituting raw findings', () => {
   const edited = 'Reviewed observation. '.repeat(400)
@@ -133,7 +185,7 @@ test('queue cancellation, worker crashes and restart recovery never publish succ
     await eventually(() => store.snapshot().jobs.find(job => job.id === failed.id)?.state === 'failed')
     assert.match(store.snapshot().jobs[2].error ?? '', /worker crash/)
     const interrupted = { ...store.snapshot().jobs[2], state: 'running', error: null }
-    await writeFile(join(root, 'data', 'analyses', failed.id, 'job.json'), JSON.stringify({ version: 1, job: interrupted, artifacts: {} }))
+    await writeFile(join(root, 'data', 'analyses', failed.id, 'job.json'), JSON.stringify({ version: 2, job: interrupted, artifacts: {} }))
     const corruptId = randomUUID()
     await mkdir(join(root, 'data', 'assets', corruptId))
     await writeFile(join(root, 'data', 'assets', corruptId, 'asset.json'), '{"version":99}')
@@ -156,4 +208,37 @@ test('worker subprocess errors and aborts propagate, invalid WAV is rejected', a
     await assert.rejects(validateWav(path))
     assert.equal((await readdir(root)).length, 1)
   } finally { await rm(root, { recursive: true, force: true }) }
+})
+test('legacy saved analyses retain their original caption selection and raw evidence without rewriting', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'decomposer-migration-'))
+  const runtime = new ContractRuntime(join(root, 'runtime'), root)
+  const store = new AnalysisStore(join(root, 'data'), runtime)
+  try {
+    await store.initialize()
+    const source = join(root, 'song.wav'); await writeFile(source, wav())
+    const asset = await store.importFile(source)
+    const job = await store.start({ assetId: asset.id, title: 'Legacy', options: { ...defaultOptions, end: 1 } })
+    await eventually(() => store.snapshot().jobs[0].state === 'completed')
+    const path = join(root, 'data', 'analyses', job.id, 'job.json')
+    const record = JSON.parse(await readFile(path, 'utf8'))
+    record.version = 1
+    record.job.options.captions = true
+    delete record.job.options.captionModel
+    const legacy = JSON.stringify(record)
+    await writeFile(path, legacy)
+    const reopened = new AnalysisStore(join(root, 'data'), runtime)
+    await reopened.initialize()
+    assert.equal(reopened.snapshot().jobs[0].options.captionModel, 'captions')
+    assert.equal(reopened.snapshot().jobs[0].options.captions, true)
+    assert.deepEqual(reopened.snapshot().jobs[0].raw, record.job.raw)
+    assert.equal(await readFile(path, 'utf8'), legacy)
+    record.version = 99
+    const unsupported = JSON.stringify(record)
+    await writeFile(path, unsupported)
+    const invalid = new AnalysisStore(join(root, 'data'), runtime)
+    await invalid.initialize()
+    assert.equal(invalid.snapshot().jobs.length, 0)
+    assert.equal(invalid.snapshot().errors.length, 1)
+    assert.equal(await readFile(path, 'utf8'), unsupported)
+  } finally { store.shutdown(); await rm(root, { recursive: true, force: true }) }
 })

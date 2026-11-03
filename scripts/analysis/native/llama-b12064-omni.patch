@@ -1,0 +1,318 @@
+diff --git a/tests/test-mtmd-impl.cpp b/tests/test-mtmd-impl.cpp
+index 536dfaa..8e78681 100644
+--- a/tests/test-mtmd-impl.cpp
++++ b/tests/test-mtmd-impl.cpp
+@@ -6,6 +6,7 @@
+ 
+ #include <cmath>
+ #include <cstdint>
++#include <fstream>
+ #include <iostream>
+ #include <stdexcept>
+ #include <string>
+@@ -353,7 +354,89 @@ MAKE_TEST(test_audio_preprocessor_conformer) {
+ // main
+ //
+ 
++static clip_hparams omni_test_hparams(bool omni = true) {
++    clip_hparams hp;
++    hp.qwen25_omni_audio = omni;
++    hp.n_mel_bins = 128;
++    hp.audio_sample_rate = 16000;
++    hp.audio_n_fft = hp.audio_window_len = 400;
++    hp.audio_hop_len = 160;
++    return hp;
++}
++
++MAKE_TEST(test_audio_preprocessor_omni_lengths) {
++    mtmd_audio_preprocessor_whisper preproc(omni_test_hparams());
++    preproc.initialize();
++    for (size_t count : {0, 320, 321, 31839, 31840, 31999, 32000, 32001, 32160, 32161, 32321,
++                         159999, 160000, 160001, 479999, 480000, 480001}) {
++        std::vector<float> samples(count, 0.0f);
++        std::vector<mtmd_audio_mel> mels;
++        const bool valid = count > 320 && count <= 480000;
++        const auto label = std::to_string(count) + " samples";
++        t.assert_equal(label, valid, preproc.preprocess(samples.data(), samples.size(), mels));
++        if (!valid) {
++            t.assert_true(label + " has no output", mels.empty());
++            continue;
++        }
++        int64_t tokens = 0;
++        for (const auto & mel : mels) {
++            t.assert_true(label + " independent window", mel.n_len >= 3 && mel.n_len <= 200);
++            t.assert_equal(label + " valid frames retained", mel.n_len, mel.n_len_org);
++            t.assert_equal(label + " tensor size", (int64_t) mel.data.size(), mel.n_len * 128);
++            tokens += ((mel.n_len + 1) / 2) / 2;
++        }
++        const int64_t valid_frames = (count + 159) / 160;
++        t.assert_equal(label + " reference token count", (valid_frames + 1) / 4, tokens);
++    }
++
++    mtmd_audio_preprocessor_whisper legacy(omni_test_hparams(false));
++    legacy.initialize();
++    std::vector<float> samples(160000, 0.0f);
++    std::vector<mtmd_audio_mel> mels;
++    t.assert_true("legacy Whisper preprocessing", legacy.preprocess(samples.data(), samples.size(), mels));
++    t.assert_equal("legacy chunk count unchanged", (size_t) 1, mels.size());
++    t.assert_equal("legacy frame count unchanged", (int64_t) 3000, mels.at(0).n_len);
++}
++
++static int dump_omni_mel(const char * input, const char * output) {
++    std::ifstream in(input, std::ios::binary | std::ios::ate);
++    if (!in) {
++        throw std::runtime_error("Cannot open reference input");
++    }
++    const auto size = in.tellg();
++    if (size <= 0 || size > 480000 * (std::streamoff) sizeof(float) || size % sizeof(float) != 0) {
++        throw std::runtime_error("Invalid reference sample data");
++    }
++    std::vector<float> samples((size_t) size / sizeof(float));
++    in.seekg(0);
++    in.read((char *) samples.data(), size);
++    if (!in) {
++        throw std::runtime_error("Cannot read reference sample data");
++    }
++    mtmd_audio_preprocessor_whisper preproc(omni_test_hparams());
++    preproc.initialize();
++    std::vector<mtmd_audio_mel> mels;
++    if (!preproc.preprocess(samples.data(), samples.size(), mels)) {
++        return 1;
++    }
++    std::ofstream out(output, std::ios::binary | std::ios::trunc);
++    const uint64_t count = mels.size();
++    out.write((const char *) &count, sizeof(count));
++    for (const auto & mel : mels) {
++        out.write((const char *) &mel.n_len, sizeof(mel.n_len));
++        out.write((const char *) &mel.n_mel, sizeof(mel.n_mel));
++        out.write((const char *) mel.data.data(), mel.data.size() * sizeof(float));
++    }
++    if (!out) {
++        throw std::runtime_error("Cannot write reference output");
++    }
++    return 0;
++}
++
+ int main(int argc, char ** argv) {
++    if (argc == 4 && std::string(argv[1]) == "--dump-omni-mel") {
++        return dump_omni_mel(argv[2], argv[3]);
++    }
+     testing t(std::cout);
+     t.verbose = true;
+ 
+diff --git a/tools/mtmd/clip-model.h b/tools/mtmd/clip-model.h
+index 2810a5c..616482d 100644
+--- a/tools/mtmd/clip-model.h
++++ b/tools/mtmd/clip-model.h
+@@ -130,6 +130,7 @@ struct clip_hparams {
+ 
+     // audio
+     int32_t n_mel_bins = 0; // whisper preprocessor
++    bool qwen25_omni_audio = false;
+     int32_t proj_stack_factor = 0; // ultravox
+     int32_t subsampling_factor = 0; // parakeet
+ 
+diff --git a/tools/mtmd/clip.cpp b/tools/mtmd/clip.cpp
+index 9a043d7..7b03fca 100644
+--- a/tools/mtmd/clip.cpp
++++ b/tools/mtmd/clip.cpp
+@@ -1390,6 +1390,10 @@ struct clip_model_loader {
+ 
+             // correct arch for multimodal models (legacy method)
+             if (model.proj_type == PROJECTOR_TYPE_QWEN25O) {
++                model.hparams.qwen25_omni_audio = modality == CLIP_MODALITY_AUDIO;
++                if (model.hparams.qwen25_omni_audio) {
++                    model.hparams.warmup_audio_size = 200;
++                }
+                 model.proj_type = modality == CLIP_MODALITY_VISION
+                                     ? PROJECTOR_TYPE_QWEN25VL
+                                     : PROJECTOR_TYPE_QWEN2A;
+@@ -4933,8 +4937,8 @@ int clip_n_output_tokens(const clip_ctx * ctx, const clip_image_f32 * img) {
+                     n_patches = n_len / proj_stack_factor;
+                 }
+ 
+-                // whisper downscales input token by half after conv1d
+-                n_patches /= 2;
++                // Omni's stride-two convolution keeps the final odd frame.
++                n_patches = params.qwen25_omni_audio ? (n_patches + 1) / 2 : n_patches / 2;
+ 
+                 if (ctx->model.audio_has_avgpool()) {
+                     // divide by 2 because of nn.AvgPool1d(2, stride=2)
+diff --git a/tools/mtmd/models/whisper-enc.cpp b/tools/mtmd/models/whisper-enc.cpp
+index 49d5dd5..58d742b 100644
+--- a/tools/mtmd/models/whisper-enc.cpp
++++ b/tools/mtmd/models/whisper-enc.cpp
+@@ -2,7 +2,7 @@
+ 
+ ggml_cgraph * clip_graph_whisper_enc::build() {
+     const int n_frames = img.nx();
+-    const int n_pos    = n_frames / 2;
++    const int n_pos    = hparams.qwen25_omni_audio ? (n_frames + 1) / 2 : n_frames / 2;
+     GGML_ASSERT(model.position_embeddings->ne[1] >= n_pos);
+ 
+     ggml_tensor * inp = build_inp_raw(1);
+diff --git a/tools/mtmd/mtmd-audio.cpp b/tools/mtmd/mtmd-audio.cpp
+index 14b5a72..b81ec69 100644
+--- a/tools/mtmd/mtmd-audio.cpp
++++ b/tools/mtmd/mtmd-audio.cpp
+@@ -278,6 +278,8 @@ struct filter_params {
+     int32_t sample_rate;
+     bool    no_padding      = false;
+     bool    center_padding  = false;
++    bool    whisper_normalize = false;
++    bool    drop_last_frame = false;
+     float   preemph         = 0.f;
+     bool    use_natural_log = false;
+     bool    norm_per_feature = false;
+@@ -470,6 +472,9 @@ static bool log_mel_spectrogram(
+     GGML_ASSERT(params.hop_length > 0);
+     out.n_mel = params.n_mel;
+     out.n_len = (n_samples - frame_size) / frame_step + 1;
++    if (params.drop_last_frame) {
++        --out.n_len;
++    }
+     // Validate dimensions before allocation to prevent integer overflow
+     if (out.n_mel <= 0 || out.n_len <= 0) {
+         LOG_ERR("%s: invalid mel dimensions n_mel=%lld n_len=%lld\n", __func__, (long long)out.n_mel, (long long)out.n_len);
+@@ -530,7 +535,7 @@ static bool log_mel_spectrogram(
+                 out.data[(size_t)i * out.n_len + j] = 0.0;
+             }
+         }
+-    } else if (!params.no_padding) {
++    } else if (!params.no_padding || params.whisper_normalize) {
+         // Whisper-style clamping and normalization (NOT used by Gemma4)
+         double mmax = -1e20;
+         const size_t mel_size = (size_t)out.n_mel * (size_t)out.n_len;
+@@ -581,6 +586,9 @@ bool mtmd_audio_preprocessor_whisper::preprocess(const float *                 s
+         // empty audio
+         return false;
+     }
++    if (hparams.qwen25_omni_audio) {
++        return preprocess_omni(samples, n_samples, output);
++    }
+ 
+     std::vector<float> smpl;
+     // reflection padding needs one sample plus half an FFT window
+@@ -646,6 +654,62 @@ bool mtmd_audio_preprocessor_whisper::preprocess(const float *                 s
+     return true;
+ }
+ 
++bool mtmd_audio_preprocessor_whisper::preprocess_omni(
++        const float * samples, size_t n_samples, std::vector<mtmd_audio_mel> & output) const {
++    const size_t max_samples = (size_t) hparams.audio_sample_rate * 30;
++    const size_t n_valid = (n_samples + hparams.audio_hop_len - 1) / hparams.audio_hop_len;
++    if (n_samples > max_samples || n_valid < 3) {
++        LOG_ERR("%s: Qwen2.5-Omni requires 3 valid mel frames through 30 seconds of audio\n", __func__);
++        return false;
++    }
++
++    // Match WhisperFeatureExtractor padding=max_length, centered reflection,
++    // last-frame removal and the reference feature_attention_mask.
++    const size_t pad = hparams.audio_n_fft / 2;
++    std::vector<float> audio(max_samples, 0.0f);
++    std::copy_n(samples, n_samples, audio.begin());
++    std::vector<float> padded(max_samples + 2 * pad);
++    std::copy(audio.begin(), audio.end(), padded.begin() + pad);
++    std::reverse_copy(audio.begin() + 1, audio.begin() + pad + 1, padded.begin());
++    std::reverse_copy(audio.end() - pad - 1, audio.end() - 1, padded.end() - pad);
++
++    filter_params params;
++    params.n_mel = hparams.n_mel_bins;
++    params.n_fft_bins = 1 + hparams.audio_n_fft / 2;
++    params.hann_window_size = hparams.audio_window_len;
++    params.hop_length = hparams.audio_hop_len;
++    params.sample_rate = hparams.audio_sample_rate;
++    params.no_padding = true;
++    params.whisper_normalize = true;
++    params.drop_last_frame = true;
++    mtmd_audio_mel mel;
++    if (!log_mel_spectrogram(padded.data(), padded.size(), 4, params, cache, mel)) {
++        return false;
++    }
++    GGML_ASSERT(n_valid <= (size_t) mel.n_len);
++
++    // The pinned Omni encoder uses n_window=100: independent 200-mel-frame
++    // windows reset convolution boundaries, positions and attention. Existing
++    // graph pooling is equivalent because each full window has 100 CNN states.
++    for (size_t off = 0; off < n_valid; off += 200) {
++        const size_t count = std::min((size_t) 200, n_valid - off);
++        if (count < 3) {
++            // Its sole CNN state is discarded by the reference's final avgpool.
++            break;
++        }
++        mtmd_audio_mel chunk;
++        chunk.n_len = chunk.n_len_org = count;
++        chunk.n_mel = mel.n_mel;
++        chunk.data.reserve(count * mel.n_mel);
++        for (int64_t bin = 0; bin < mel.n_mel; ++bin) {
++            const auto begin = mel.data.begin() + bin * mel.n_len + off;
++            chunk.data.insert(chunk.data.end(), begin, begin + count);
++        }
++        output.push_back(std::move(chunk));
++    }
++    return !output.empty();
++}
++
+ //
+ // mtmd_audio_preprocessor_qwen3a
+ //
+diff --git a/tools/mtmd/mtmd-audio.h b/tools/mtmd/mtmd-audio.h
+index e9194ad..682c9e1 100644
+--- a/tools/mtmd/mtmd-audio.h
++++ b/tools/mtmd/mtmd-audio.h
+@@ -66,10 +66,12 @@ struct mtmd_audio_preprocessor {
+ 
+ struct mtmd_audio_preprocessor_whisper : mtmd_audio_preprocessor {
+     mtmd_audio_preprocessor_whisper(const clip_ctx * ctx) : mtmd_audio_preprocessor(ctx) {}
++    mtmd_audio_preprocessor_whisper(const clip_hparams & hparams) : mtmd_audio_preprocessor(hparams) {}
+     void initialize() override;
+     bool preprocess(const float * samples, size_t n_samples, std::vector<mtmd_audio_mel> & output) const override;
+ 
+   private:
++    bool preprocess_omni(const float * samples, size_t n_samples, std::vector<mtmd_audio_mel> & output) const;
+     mtmd_audio_cache cache;
+ };
+ 
+diff --git a/tools/mtmd/mtmd-cli.cpp b/tools/mtmd/mtmd-cli.cpp
+index ba156f1..2293153 100644
+--- a/tools/mtmd/mtmd-cli.cpp
++++ b/tools/mtmd/mtmd-cli.cpp
+@@ -217,8 +217,10 @@ struct mtmd_cli_context {
+ 
+ static int generate_response(mtmd_cli_context & ctx, int n_predict) {
+     llama_tokens generated_tokens;
++    const char * completion_reason = "length";
+     for (int i = 0; i < n_predict; i++) {
+         if (i > n_predict || !g_is_generating || g_is_interrupted) {
++            completion_reason = "interrupted";
+             LOG("\n");
+             break;
+         }
+@@ -227,7 +229,9 @@ static int generate_response(mtmd_cli_context & ctx, int n_predict) {
+         generated_tokens.push_back(token_id);
+         common_sampler_accept(ctx.smpl, token_id, true);
+ 
+-        if (llama_vocab_is_eog(ctx.vocab, token_id) || ctx.check_antiprompt(generated_tokens)) {
++        const bool is_eog = llama_vocab_is_eog(ctx.vocab, token_id);
++        if (is_eog || ctx.check_antiprompt(generated_tokens)) {
++            completion_reason = is_eog ? "eog" : "antiprompt";
+             LOG("\n");
+             break; // end of generation
+         }
+@@ -236,6 +240,7 @@ static int generate_response(mtmd_cli_context & ctx, int n_predict) {
+         fflush(stdout);
+ 
+         if (g_is_interrupted) {
++            completion_reason = "interrupted";
+             LOG("\n");
+             break;
+         }
+@@ -254,6 +259,8 @@ static int generate_response(mtmd_cli_context & ctx, int n_predict) {
+     msg.role    = "assistant";
+     msg.content = generated_text;
+     ctx.chat_history.push_back(std::move(msg));
++    LOG_INF("mtmd_completion: reason=%s tokens=%zu limit=%d\n",
++        completion_reason, generated_tokens.size(), n_predict);
+ 
+     return 0;
+ }

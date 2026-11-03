@@ -4,7 +4,7 @@ import { access, mkdir, readdir, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { totalmem } from 'node:os'
 import { z } from 'zod'
-import { profileSchema, type Profile, type RuntimeStatus } from '../shared/decomposer'
+import { optionsSchema, profileSchema, resultSchema, type Profile, type RuntimeStatus } from '../shared/decomposer'
 
 const uvVersion = '0.6.17'
 const uvHash = '32882cf98f646cafca003e7a7c471b7ff4ba977b681c9fa3b12cf908ba64af82'
@@ -14,7 +14,8 @@ const profiles: RuntimeStatus['profiles'] = [
   { id: 'lyrics-tiny', label: 'Whisper tiny (fast, less accurate)', ready: false, detail: 'Not installed', download: '~200 MB dependencies + ~75 MB weights', license: 'Whisper / faster-whisper / CTranslate2 MIT' },
   { id: 'lyrics-base', label: 'Whisper base (multilingual)', ready: false, detail: 'Not installed', download: '~200 MB dependencies + ~145 MB weights', license: 'Whisper / faster-whisper / CTranslate2 MIT' },
   { id: 'notes', label: 'Basic Pitch note / MIDI estimates', ready: false, detail: 'Not installed', download: '~400 MB dependencies; small bundled model', license: 'Basic Pitch Apache-2.0' },
-  { id: 'captions', label: 'Qwen2-Audio 7B detailed descriptions', ready: false, detail: 'Not installed', download: '~17 GB weights + CPU dependencies; recommend 40 GB free RAM', license: 'Qwen2-Audio Apache-2.0; may hallucinate' }
+  { id: 'captions', label: 'Qwen2-Audio 7B (unverified)', ready: false, detail: 'Not installed', download: '~17 GB weights + dependencies; 40 GiB total / 35 GiB available RAM', license: 'Qwen2-Audio Apache-2.0; full inference unverified; may hallucinate' },
+  { id: 'captions-native', label: 'Qwen2.5-Omni Q4 qualitative descriptions', ready: false, detail: 'Not installed', download: '6.23 GB weights + 41 MB source; 15 GiB install space; existing Git, x64 C++ tools and CMake/Ninja; 10 GiB available RAM per inference window', license: 'Upstream 7B Apache-2.0 (retained LICENSE); GGUF card metadata still says qwen-research. llama.cpp MIT, pinned source + compatibility patch.' }
 ]
 
 export function stopProcess(child: ChildProcess) {
@@ -84,6 +85,20 @@ export class LocalRuntime {
     this.python = join(root, 'venv', 'Scripts', 'python.exe')
   }
   async worker(input: Record<string, unknown>, progress: (fraction: number, stage: string) => void = () => {}, signal?: AbortSignal): Promise<unknown> {
+    if (input.command === 'analyze') {
+      const options = optionsSchema.parse(input.options)
+      if (options.captions && options.captionModel === 'captions-native') {
+        const base = resultSchema.parse(await this.invokeWorker({ ...input, command: 'analyze-base' }, (fraction, stage) => progress(fraction * 0.45, stage), signal))
+        // Release DSP/ML imports before launching the separately guarded native helper.
+        const captions = resultSchema.pick({ descriptions: true, provenance: true, warnings: true }).parse(
+          await this.invokeWorker({ ...input, command: 'native-describe' }, (fraction, stage) => progress(0.45 + fraction * 0.55, stage), signal)
+        )
+        return resultSchema.parse({ ...base, descriptions: captions.descriptions, warnings: [...base.warnings, ...captions.warnings], provenance: [...base.provenance, ...captions.provenance] })
+      }
+    }
+    return this.invokeWorker(input, progress, signal)
+  }
+  protected async invokeWorker(input: Record<string, unknown>, progress: (fraction: number, stage: string) => void, signal?: AbortSignal): Promise<unknown> {
     try { await access(this.python) } catch { throw new Error('Install the core audio runtime in Model Settings first.') }
     let result: unknown
     let received = false
@@ -170,10 +185,12 @@ export class LocalRuntime {
         await command(uv, ['venv', join(this.root, 'venv'), '--python', join(this.root, 'python', pythonRoot, 'python.exe'), '--no-config'], undefined, () => {}, signal)
       }
     }
-    this.status.message = `Installing pinned ${profile} dependencies; this may take several minutes...`
-    const requirements = join(this.scripts, `requirements-${profile}.txt`)
-    await access(requirements)
-    await command(uv, ['pip', 'install', '--python', this.python, '--requirement', requirements, '--no-config'], undefined, () => {}, signal)
+    if (profile !== 'captions-native') {
+      this.status.message = `Installing pinned ${profile} dependencies; this may take several minutes...`
+      const requirements = join(this.scripts, `requirements-${profile}.txt`)
+      await access(requirements)
+      await command(uv, ['pip', 'install', '--python', this.python, '--requirement', requirements, '--no-config'], undefined, () => {}, signal)
+    }
     if (profile !== 'core') {
       this.status.message = `Acquiring ${profile} model files (explicit download)...`
       await this.worker({ command: 'acquire', profile }, (_fraction, stage) => { this.status.message = stage }, signal)

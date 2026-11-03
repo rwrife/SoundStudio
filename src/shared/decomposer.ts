@@ -2,14 +2,19 @@ import { z } from 'zod'
 
 export const idSchema = z.uuid()
 export const stemSchema = z.enum(['vocals', 'drums', 'bass', 'other'])
-export const profileSchema = z.enum(['core', 'stems', 'lyrics-tiny', 'lyrics-base', 'notes', 'captions'])
+export const profileSchema = z.enum(['core', 'stems', 'lyrics-tiny', 'lyrics-base', 'notes', 'captions', 'captions-native'])
+export const captionModelSchema = z.enum(['captions', 'captions-native'])
+export const captionLabels = {
+  captions: 'Qwen2-Audio (unverified)',
+  'captions-native': 'Qwen2.5-Omni Q4'
+} as const
 export type Profile = z.infer<typeof profileSchema>
 export type Stem = z.infer<typeof stemSchema>
 const seconds = z.number().finite().min(0).max(1800)
 const text = z.string().max(20000)
 export const timedTextSchema = z.object({ start: seconds, end: seconds, text }).strict()
   .refine(value => value.end >= value.start, 'End must follow start')
-export const optionsSchema = z.object({
+const legacyOptionsBase = z.object({
   start: seconds,
   end: seconds,
   stems: z.array(stemSchema).max(4).refine(items => new Set(items).size === items.length),
@@ -17,10 +22,16 @@ export const optionsSchema = z.object({
   wordTimestamps: z.boolean(),
   notes: z.boolean(),
   captions: z.boolean()
-}).strict().refine(value => value.end > value.start && value.end - value.start <= 600, 'Select an excerpt of up to 10 minutes')
+}).strict()
+const validExcerpt = (value: { start: number; end: number }) => value.end > value.start && value.end - value.start <= 600
+export const legacyOptionsSchema = legacyOptionsBase.refine(validExcerpt, 'Select an excerpt of up to 10 minutes')
+export const optionsSchema = legacyOptionsBase.extend({ captionModel: captionModelSchema })
+  .refine(validExcerpt, 'Select an excerpt of up to 10 minutes')
+  .refine(value => !value.captions || value.captionModel !== 'captions-native' || value.end - value.start >= 1,
+    'Native captions require an excerpt of at least one second')
 export type AnalysisOptions = z.infer<typeof optionsSchema>
 export const defaultOptions: AnalysisOptions = {
-  start: 0, end: 30, stems: [], lyrics: 'none', wordTimestamps: false, notes: false, captions: false
+  start: 0, end: 30, stems: [], lyrics: 'none', wordTimestamps: false, notes: false, captions: false, captionModel: 'captions'
 }
 export const audioMetadataSchema = z.object({
   duration: z.number().finite().positive().max(1800),

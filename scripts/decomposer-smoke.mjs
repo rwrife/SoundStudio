@@ -169,7 +169,7 @@ try {
     assert.deepEqual(range, { status: 206, size: 44 })
     assert.equal(await page.evaluate(async () => (await fetch('soundstudio://media/invalid/reference')).status), 404)
     assert.match(await page.evaluate(async id => {
-      try { await window.soundStudio.decomposer.start({ assetId: id, title: 'Invalid IPC', options: { start: 0, end: 8, stems: [], lyrics: 'none', notes: false, captions: false, wordTimestamps: false }, path: 'C:\\private.wav' }); return 'unexpected success' }
+      try { await window.soundStudio.decomposer.start({ assetId: id, title: 'Invalid IPC', options: { start: 0, end: 8, stems: [], lyrics: 'none', notes: false, captions: false, captionModel: 'captions', wordTimestamps: false }, path: 'C:\\private.wav' }); return 'unexpected success' }
       catch (error) { return String(error) }
     }, asset.id), /Unrecognized|unrecognized/)
     await page.getByLabel('Excerpt end', { exact: true }).fill('8')
@@ -211,13 +211,13 @@ try {
     // Missing caption weights are deliberately not acquired by the test.
     const missing = await page.evaluate(async assetId => window.soundStudio.decomposer.start({
       assetId, title: 'Missing model check',
-      options: { start: 0, end: 2, stems: [], lyrics: 'none', notes: false, captions: true, wordTimestamps: false }
+      options: { start: 0, end: 2, stems: [], lyrics: 'none', notes: false, captions: true, captionModel: 'captions', wordTimestamps: false }
     }), asset.id)
     await waitJob(missing.id, 'failed')
     assert.match((await snapshot()).jobs.find(job => job.id === missing.id).error, /caption|model|memory|install|RAM/i)
     const cancellation = await page.evaluate(async assetId => window.soundStudio.decomposer.start({
       assetId, title: 'Cancellation check',
-      options: { start: 0, end: 8, stems: [], lyrics: 'none', notes: false, captions: false, wordTimestamps: false }
+      options: { start: 0, end: 8, stems: [], lyrics: 'none', notes: false, captions: false, captionModel: 'captions', wordTimestamps: false }
     }), asset.id)
     await page.evaluate(id => window.soundStudio.decomposer.cancel(id), cancellation.id)
     await waitJob(cancellation.id, 'cancelled')
@@ -230,17 +230,17 @@ try {
   await page.getByRole('tab', { name: 'Effects', exact: true }).click()
   assert.equal(await page.getByLabel('Describe your sound').inputValue(), 'Rain through a forest canopy')
   await page.getByRole('tab', { name: 'Music', exact: true }).click()
-  await page.waitForFunction(() => JSON.parse(localStorage.getItem('sound-studio.workspace.v3')).workspace === 'music')
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('sound-studio.workspace.v4')).workspace === 'music')
   await app.close(); app = undefined
   await launch()
   assert.equal(await page.getByRole('tab', { name: 'Music', exact: true }).getAttribute('aria-selected'), 'true')
   assert.match(await page.getByLabel('Describe your music').inputValue(), /Unanalysed intent/)
   if (completedId) assert.equal((await snapshot()).jobs.find(job => job.id === completedId).reviewed.key, 'C major - user corrected')
   const generationV2 = await page.evaluate(() => {
-    const current = JSON.parse(localStorage.getItem('sound-studio.workspace.v3'))
+    const current = JSON.parse(localStorage.getItem('sound-studio.workspace.v4'))
     const legacy = JSON.stringify({ version: 2, workspace: current.workspace, drafts: current.drafts })
     localStorage.setItem('sound-studio.workspace.v1', legacy)
-    localStorage.removeItem('sound-studio.workspace.v3')
+    localStorage.removeItem('sound-studio.workspace.v4')
     return legacy
   })
   await page.reload()
@@ -249,43 +249,70 @@ try {
   await page.getByLabel('Instrumental only').uncheck()
   assert.match(await page.getByLabel(/^Lyrics/).inputValue(), /Keep this user-written refrain/)
   assert.equal(await page.evaluate(() => localStorage.getItem('sound-studio.workspace.v1')), generationV2)
-  await page.waitForFunction(() => JSON.parse(localStorage.getItem('sound-studio.workspace.v3')).version === 3)
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('sound-studio.workspace.v4')).version === 4)
   const analysisV2 = await page.evaluate(() => {
-    const current = JSON.parse(localStorage.getItem('sound-studio.workspace.v3'))
+    const current = JSON.parse(localStorage.getItem('sound-studio.workspace.v4'))
     current.version = 2
     current.decomposition.notes = true
+    delete current.decomposition.captionModel
     const legacy = JSON.stringify(current)
     localStorage.setItem('sound-studio.workspace.v2', legacy)
-    localStorage.removeItem('sound-studio.workspace.v3')
+    localStorage.removeItem('sound-studio.workspace.v4')
     return legacy
   })
   await page.reload()
   await page.getByLabel('Describe your music').waitFor()
   assert.equal(await page.getByLabel('Key', { exact: true }).inputValue(), 'F# minor')
   assert.equal(await page.evaluate(() => localStorage.getItem('sound-studio.workspace.v2')), analysisV2)
-  await page.waitForFunction(() => JSON.parse(localStorage.getItem('sound-studio.workspace.v3')).decomposition.notes === true)
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('sound-studio.workspace.v4')).decomposition.notes === true)
+  const combinedV3 = await page.evaluate(() => {
+    const current = JSON.parse(localStorage.getItem('sound-studio.workspace.v4'))
+    current.version = 3
+    current.decomposition.captions = true
+    delete current.decomposition.captionModel
+    const legacy = JSON.stringify(current)
+    localStorage.setItem('sound-studio.workspace.v3', legacy)
+    localStorage.removeItem('sound-studio.workspace.v4')
+    return legacy
+  })
+  await page.reload()
+  await page.getByLabel('Describe your music').waitFor()
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('sound-studio.workspace.v4')).decomposition.captionModel === 'captions')
+  assert.equal(await page.evaluate(() => localStorage.getItem('sound-studio.workspace.v3')), combinedV3)
+  await page.getByRole('tab', { name: 'Decomposer', exact: true }).click()
+  await page.getByRole('button', { name: /^2 / }).click()
+  await page.getByLabel('Description model', { exact: true }).selectOption('captions-native')
+  await page.reload()
+  assert.equal(await page.getByLabel('Description model', { exact: true }).inputValue(), 'captions-native')
+  await page.getByRole('tab', { name: 'Music', exact: true }).click()
   const legacy = await page.evaluate(() => {
-    const current = JSON.parse(localStorage.getItem('sound-studio.workspace.v3'))
+    const current = JSON.parse(localStorage.getItem('sound-studio.workspace.v4'))
     const legacy = JSON.stringify({ version: 1, workspace: current.workspace, drafts: current.drafts })
     localStorage.setItem('sound-studio.workspace.v1', legacy)
     localStorage.removeItem('sound-studio.workspace.v2')
     localStorage.removeItem('sound-studio.workspace.v3')
+    localStorage.removeItem('sound-studio.workspace.v4')
     return legacy
   })
   await page.reload()
   await page.getByLabel('Describe your music').waitFor()
   assert.match(await page.getByLabel('Describe your music').inputValue(), /Unanalysed intent/)
   assert.equal(await page.evaluate(() => localStorage.getItem('sound-studio.workspace.v1')), legacy)
-  await page.waitForFunction(() => JSON.parse(localStorage.getItem('sound-studio.workspace.v3')).version === 3)
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('sound-studio.workspace.v4')).version === 4)
   await page.evaluate(() => { Storage.prototype.setItem = () => { throw new DOMException('Quota exceeded', 'QuotaExceededError') } })
   await page.getByLabel('Describe your music').fill('Still editable when storage is full')
   await page.getByRole('alert').filter({ hasText: /could not be saved/ }).waitFor()
   await page.reload()
-  await page.evaluate(() => localStorage.setItem('sound-studio.workspace.v3', '{broken'))
+  await page.evaluate(() => localStorage.setItem('sound-studio.workspace.v4', ''))
+  await page.reload()
+  await page.getByRole('alert').filter({ hasText: /Could not load/ }).waitFor()
+  await page.getByLabel('Describe your sound').fill('Empty saved data must remain untouched')
+  assert.equal(await page.evaluate(() => localStorage.getItem('sound-studio.workspace.v4')), '')
+  await page.evaluate(() => localStorage.setItem('sound-studio.workspace.v4', '{broken'))
   await page.reload()
   await page.getByRole('alert').filter({ hasText: /Could not load/ }).waitFor()
   await page.getByLabel('Describe your sound').fill('Unsaved but editable')
-  assert.equal(await page.evaluate(() => localStorage.getItem('sound-studio.workspace.v3')), '{broken')
+  assert.equal(await page.evaluate(() => localStorage.getItem('sound-studio.workspace.v4')), '{broken')
   assert.deepEqual(errors, [], 'No uncaught renderer exceptions')
   console.log(`Desktop smoke passed: sandbox/IPC, independent drafts/migration, handoff confirmation, dialogs, minimum layout, ${coreAvailable ? 'real decoder/DSP, playback/seeking, corrections, export, missing models, cancellation,' : 'missing runtime,'} restart persistence and corrupt storage. Synthetic audio tests DSP only, not ML.`)
 } catch (error) {

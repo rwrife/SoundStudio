@@ -89,7 +89,7 @@ test('migrates version 1 drafts by adding empty lyrics and a default key', () =>
     'a malformed Decomposer draft is rejected, not replaced')
 })
 
-test('unified v3 preserves both parallel v2 schemas, generation lyrics/key and analysis selections', () => {
+test('v4 preserves both parallel v2 schemas, v3 generation edits and original caption selections', () => {
   const current = createInitialState()
   current.workspace = 'decomposer'
   current.drafts.effects.prompt = 'Rain with footsteps'
@@ -99,12 +99,16 @@ test('unified v3 preserves both parallel v2 schemas, generation lyrics/key and a
   current.decomposition.notes = true
   current.decomposition.start = 12
   current.decomposition.end = 25
-  assert.deepEqual(parseStudioState(JSON.stringify({ ...current, version: 2 })), current)
+  current.decomposition.captions = true
+  const { captionModel: _captionModel, ...oldOptions } = current.decomposition
+  for (const version of [2, 3]) {
+    assert.deepEqual(parseStudioState(JSON.stringify({ ...current, version, decomposition: oldOptions })), current)
+  }
   const { decomposition: _analysis, ...generation } = current
   const migratedGeneration = parseStudioState(JSON.stringify({ ...generation, version: 2 }))
   assert.deepEqual(migratedGeneration.drafts, current.drafts)
   const strip = ({ lyrics: _lyrics, musicKey: _key, ...rest }: typeof current.drafts.music) => rest
-  const analysis = { ...current, version: 2, drafts: Object.fromEntries(Object.entries(current.drafts).map(([key, draft]) => [key, strip(draft)])) }
+  const analysis = { ...current, version: 2, decomposition: oldOptions, drafts: Object.fromEntries(Object.entries(current.drafts).map(([key, draft]) => [key, strip(draft)])) }
   const migratedAnalysis = parseStudioState(JSON.stringify(analysis))
   assert.deepEqual(migratedAnalysis.decomposition, current.decomposition)
   assert.equal(migratedAnalysis.drafts.music.lyrics, '')
@@ -113,6 +117,10 @@ test('unified v3 preserves both parallel v2 schemas, generation lyrics/key and a
   assert.throws(() => parseStudioState(JSON.stringify({ ...analysis, decomposition: { broken: true } })))
   assert.throws(() => parseStudioState(JSON.stringify({ ...generation, version: studioStateVersion })))
   assert.throws(() => parseStudioState(JSON.stringify({ ...current, version: 99 })))
+  current.decomposition.captionModel = 'captions-native'
+  assert.deepEqual(parseStudioState(JSON.stringify(current)), current)
+  assert.throws(() => parseStudioState(JSON.stringify({ ...current, version: 3 })), 'new selections cannot masquerade as legacy data')
+  assert.throws(() => parseStudioState(JSON.stringify({ ...current, decomposition: { ...current.decomposition, captionModel: 'automatic' } })))
 })
 
 test('only Effects and Music reach generation paths', () => {

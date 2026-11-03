@@ -21,7 +21,7 @@ Sound Studio is an Electron, React and TypeScript desktop app for AI sound effec
 
 **Not implemented:**
 - Installing or updating ComfyUI, starting the ComfyUI Desktop app, and downloading models other than the default local ones below.
-- Verified caption inference on the development host: the implemented Qwen2-Audio profile exceeds its RAM budget and remains unverified.
+- Verified full-precision Qwen2-Audio inference: that separate experimental profile exceeds the development host's RAM budget. Local quantized Qwen2.5-Omni descriptions are available as an explicit alternative.
 - General-purpose audio editing, variations, loop refinement or loudness processing.
 - Project files, search, packaging and an MCP server.
 
@@ -164,7 +164,7 @@ Write a musical brief and choose genre, mood, duration and tempo. Choose a key w
 
 Install the local analysis runtime in **Model Settings > Decomposer**, import a recording you may process, choose an excerpt and select optional stems, lyrics, notes or audio descriptions. DSP timing/harmony analysis is always included. Model downloads require explicit confirmation; unavailable stages fail rather than returning fake findings.
 
-Review the original mix, actual stems, lyric timings and estimates, then save corrections separately from raw machine output. The [Decomposer guide](docs/DECOMPOSER.md) covers supported formats, runtime/model limits, export formats, uncertainty and real-output validation. Descriptions from Qwen2-Audio remain unverified on this under-resourced development host.
+Review the original mix, actual stems, lyric timings and estimates, then save corrections separately from raw machine output. The [Decomposer guide](docs/DECOMPOSER.md) covers supported formats, runtime/model limits, export formats, uncertainty and real-output validation. Choose **Qwen2.5-Omni Q4** explicitly for local qualitative descriptions after installing its profile; saved selections are never changed automatically. The separate full-precision Qwen2-Audio profile remains unverified.
 
 ### Steps
 
@@ -187,7 +187,7 @@ Takes are stored in the app profile under `takes/`. Each has an audio file and a
 
 ## Storage and privacy
 
-- **Drafts:** `sound-studio.workspace.v3`, schema version 3. Migrations preserve generation lyrics/key and Decomposer stage selections from both earlier v2 shapes. The v2 and v1 keys are only read when v3 is absent, in that order, and are left intact. Unsupported/corrupt states are not overwritten.
+- **Drafts:** `sound-studio.workspace.v4`, schema version 4. Migrations preserve generation lyrics/key and Decomposer stage selections from v3 and both earlier v2 shapes. Existing caption selections remain full-precision Qwen2-Audio; the native profile requires explicit selection. The v3, v2 and v1 keys are read only when v4 is absent, in that order, and are left intact. Unsupported/corrupt states, including empty saved data, are not overwritten. Analysis job records similarly migrate v1 to v2 without replacing completed legacy records on read.
 - **Connection and model choices:** `sound-studio.backend.v1`.
 - **Chosen ComfyUI folder:** `comfyui-launcher.json` in the profile, with the ComfyUI console log in `logs\comfyui.log`.
 - **Cloud key:** encrypted in the profile, as described above.
