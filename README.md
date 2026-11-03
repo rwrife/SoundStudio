@@ -4,40 +4,48 @@
 
 **A local-first home for AI sound effects and music, built for the worlds you create.**
 
-Sketch the crackle of a campfire, the perfect interface chime, or the soundtrack to somewhere new. Sound Studio brings two creative workspaces into one blue-toned desktop application, inspired by [Character Studio](https://github.com/rwrife/CharacterStudio).
+Sketch the crackle of a campfire, the perfect interface chime, or the soundtrack to somewhere new. Sound Studio gives you two creative workspaces in one blue-toned desktop application, inspired by [Character Studio](https://github.com/rwrife/CharacterStudio). Generation runs on **your own [ComfyUI](https://github.com/comfyanonymous/ComfyUI)** on this device.
 
-**Early application shell.** You can write and save local drafts, explore workflows and plan your sound. AI generation, model installation, playback, import and export are **not implemented yet**. No models are bundled, no inference services are contacted, and sample briefs do not produce audio.
+**Early preview.** Sound Studio does not bundle or download models. It drives a ComfyUI server that you install and start yourself. Without one, you can still draft and save ideas, but nothing is generated.
 
-[Get started](#getting-started) | [Features](#features-at-a-glance) | [Future directions](#future-directions) | [Full guide](GUIDE.md)
+[Get started](#getting-started) | [Features](#features-at-a-glance) | [Models](#models) | [Future directions](#future-directions) | [Full guide](GUIDE.md)
 
 ![Sound Studio's Effects workspace with a blue workflow stepper, prompt panel and empty audio canvas](docs/screenshots/effects-workspace.png)
 
-*The actual Effects shell. The canvas is an empty placeholder, not a generated waveform.*
+*The actual Effects workspace before connecting to ComfyUI.*
 
 ## Features at a glance
 
 | Shape the small details | Set the bigger scene |
 |---|---|
-| **Effects workspace.** Draft ambience, foley, interface sounds and more with category, duration, seed and loop intentions. | **Music workspace.** Explore a musical direction with genre, mood, duration, tempo and instrumental intentions. |
-| **A familiar creative flow.** Move from Describe to Generate, Review & refine, and Export using a connected process stepper. | **Room to focus.** One contextual settings panel, a dedicated audio canvas and no permanent right-hand clutter. |
-| **A little inspiration.** Load sample briefs and make them your own. | **Ideas that stay with you.** Independent drafts survive tab changes, settings dialogs and application restarts on the same device. |
+| **Effects workspace.** Describe ambience, foley, interface sounds and more, with category, duration, seed and loop intent. | **Music workspace.** Set genre, mood, duration, tempo, key and lyrics when your model can sing. |
+| **Generate on your machine.** Sound Studio can start your ComfyUI for you, send it a validated workflow, follow its progress and cancel at any time. | **Hear every take.** Play takes, see waveforms drawn from the real audio, and compare recent takes. |
+| **Export with provenance.** Copy the original file and a `.provenance.json` that records the prompt, model, settings and workflow. | **Ideas that stay with you.** Drafts, takes and model choices stay on this device and survive restarts. |
 
-![Sound Studio's Music workspace with genre, mood and tempo draft controls](docs/screenshots/music-workspace.png)
+![Sound Studio's Model Settings drawer listing local, cloud partner and custom workflow models](docs/screenshots/model-settings.png)
 
-*The actual Music shell. Generation and audio controls are deliberately unavailable until a backend exists.*
+*Model Settings groups models by where they run. Cloud partner models stay off until you opt in.*
 
-## Inside the shell
+## Models
 
-- **Slate-blue design.** Dark neutral canvases, blue-gray settings panels and pale-blue accents.
-- **Visible boundaries.** Model Settings, Backend connections and Sound library explain their placeholder state rather than pretending to be connected.
-- **Keyboard-friendly navigation.** Arrow-key workspace tabs, labeled controls, modal focus containment and Escape-to-close dialogs.
-- **Local by default.** Drafts remain in the application profile. The renderer has no Node.js or unrestricted filesystem access.
+| Workspace | Runs on this device | Cloud partner (opt-in) | Your workflow |
+|---|---|---|---|
+| Effects | Stable Audio Open 1.0 | Mirelo SFX 2.0, ByteDance Seed Audio 1.0 | Any ComfyUI audio workflow |
+| Music | ACE-Step 1.5 Turbo, ACE-Step v1 3.5B, Stable Audio Open 1.0 | None | MusicGen, DiffRhythm 2 and other custom nodes |
+
+- **On this device:** open-weight models run by ComfyUI's built-in nodes. Download them yourself; Model Settings shows where each file goes and checks that ComfyUI can see it.
+- **Cloud partner models:** run by a third-party service through ComfyUI partner nodes. They need your explicit opt-in and a Comfy.org API key, encrypted on this device. Charges apply, and an estimate is shown before you generate.
+- **Your workflow:** export any working ComfyUI audio workflow in API format, add placeholders such as `{{prompt}}` and `{{seconds}}`, and import it.
+
+![Sound Studio's Music workspace with genre, mood, tempo and key controls](docs/screenshots/music-workspace.png)
+
+*The actual Music workspace, with ACE-Step 1.5 selected and no ComfyUI connected.*
 
 ## Basic requirements
 
 - Node.js **22.12 or newer** and npm.
-- A desktop environment supported by Electron. The initial shell is developed and exercised on Windows; other platforms are not yet verified.
-- No GPU, Python environment, AI account or model weights are required for this shell.
+- A desktop environment supported by Electron. Development and testing happen on Windows; other platforms are not yet verified.
+- To generate, a recent [ComfyUI](https://github.com/comfyanonymous/ComfyUI) running on this device, plus at least one model. Local models need a capable GPU; ACE-Step 1.5 suggests about 12 GB of VRAM.
 
 ## Getting started
 
@@ -48,6 +56,8 @@ npm install
 npm run dev
 ```
 
+Then choose **Backend not connected**. Pick your ComfyUI folder (a portable build or a source checkout with a virtual environment) and choose **Start ComfyUI**, or start ComfyUI yourself (by default at `http://127.0.0.1:8188`) and choose **Connect**. Open **Model Settings** to check which models are ready.
+
 For a production build:
 
 ```powershell
@@ -55,17 +65,16 @@ npm run build
 npm start
 ```
 
-On Windows, `.\Start-SoundStudio.ps1` also opens an existing build. A browser-only UI preview is available with `npm run dev:web`.
+On Windows, `.\Start-SoundStudio.ps1` also opens an existing build. A browser-only UI preview, which cannot generate, is available with `npm run dev:web`.
 
-See the [guide](GUIDE.md) for workflow details, local storage, development commands and current limitations. Contributor and coding-agent conventions are in [AGENTS.md](AGENTS.md).
+See the [guide](GUIDE.md) for model setup, cloud access, custom workflows, storage and troubleshooting. Contributor and coding-agent conventions are in [AGENTS.md](AGENTS.md).
 
 ## Future directions
 
 These are goals, **not shipped capabilities**:
 
-- Local text-to-sound and text-to-music models, with explicit model downloads and hardware-fit guidance.
-- Real waveform previews, playback, variation comparison and loop refinement.
-- Audio import, an organized asset library and export for game and media projects.
-- Durable project files and output provenance, including the actual model, prompt and seed used.
+- Guided model downloads and starting a managed ComfyUI from the app.
+- Variations, inpainting and loop refinement for existing takes.
+- Audio import, a searchable asset library and project files for game and media projects.
 
-The foundation is intentionally small: a place to shape the idea before connecting the engine.
+The foundation is intentionally small: describe the idea, generate it on your own hardware and keep the record of how it was made.

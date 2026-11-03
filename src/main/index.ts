@@ -1,7 +1,16 @@
 import { app, BrowserWindow, dialog, session } from 'electron'
 import { join } from 'node:path'
+import { CloudAccess } from './cloud'
+import { GenerationManager } from './generation'
+import { registerIpc } from './ipc'
+import { ComfyLauncher } from './launcher'
+import { TakeStore } from './takes'
+import { channels } from '../shared/bridge'
+import { activeStatuses } from '../shared/generation'
 
 app.setName('Sound Studio')
+
+let mainWindow: BrowserWindow | null = null
 
 async function createWindow() {
   const window = new BrowserWindow({
@@ -21,6 +30,8 @@ async function createWindow() {
       webSecurity: true
     }
   })
+  mainWindow = window
+  window.on('closed', () => { if (mainWindow === window) mainWindow = null })
 
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   window.webContents.on('will-navigate', event => event.preventDefault())
@@ -48,6 +59,16 @@ function reportStartupError(error: unknown) {
 app.whenReady().then(async () => {
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false))
   session.defaultSession.setPermissionCheckHandler(() => false)
+  const cloud = new CloudAccess()
+  const takes = new TakeStore()
+  const generation = new GenerationManager(cloud, takes, job => {
+    if (mainWindow && !mainWindow.webContents.isDestroyed()) mainWindow.webContents.send(channels.jobUpdate, job)
+  })
+  const launcher = new ComfyLauncher(status => {
+    if (mainWindow && !mainWindow.webContents.isDestroyed()) mainWindow.webContents.send(channels.launcherUpdate, status)
+  }, () => generation.list().some(job => activeStatuses.includes(job.status)))
+  app.on('will-quit', () => launcher.dispose())
+  registerIpc({ cloud, takes, generation, launcher, window: () => mainWindow })
   await createWindow()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) void createWindow().catch(reportStartupError)
