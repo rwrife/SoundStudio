@@ -4,9 +4,9 @@
 
 **A local-first home for AI sound effects and music, built for the worlds you create.**
 
-Sketch the crackle of a campfire, the perfect interface chime, or the soundtrack to somewhere new. Sound Studio brings two creative workspaces into one blue-toned desktop application, inspired by [Character Studio](https://github.com/rwrife/CharacterStudio).
+Sketch the crackle of a campfire, the perfect interface chime, the soundtrack to somewhere new, or a breakdown of a song you want to study. Sound Studio brings three creative workspaces into one blue-toned desktop application, inspired by [Character Studio](https://github.com/rwrife/CharacterStudio).
 
-**Early application shell.** You can write and save local drafts, explore workflows and plan your sound. AI generation, model installation, playback, import and export are **not implemented yet**. No models are bundled, no inference services are contacted, and sample briefs do not produce audio.
+**Early application shell.** You can write and save local drafts, explore workflows and plan your sound or song analysis. AI generation, music decomposition, model installation, playback, import and export are **not implemented yet**. No models are bundled, no inference services are contacted, and sample briefs do not produce or analyze audio.
 
 [Get started](#getting-started) | [Features](#features-at-a-glance) | [Future directions](#future-directions) | [Full guide](GUIDE.md)
 
@@ -19,12 +19,16 @@ Sketch the crackle of a campfire, the perfect interface chime, or the soundtrack
 | Shape the small details | Set the bigger scene |
 |---|---|
 | **Effects workspace.** Draft ambience, foley, interface sounds and more with category, duration, seed and loop intentions. | **Music workspace.** Explore a musical direction with genre, mood, duration, tempo and instrumental intentions. |
-| **A familiar creative flow.** Move from Describe to Generate, Review & refine, and Export using a connected process stepper. | **Room to focus.** One contextual settings panel, a dedicated audio canvas and no permanent right-hand clutter. |
-| **A little inspiration.** Load sample briefs and make them your own. | **Ideas that stay with you.** Independent drafts survive tab changes, settings dialogs and application restarts on the same device. |
+| **Decomposer workspace.** Plan reference-track breakdowns across stems, tempo, harmony, lyric transcription and variation briefs. | **A familiar creative flow.** Move from Describe to Generate or Decompose, Review & refine, and Export using a connected process stepper. |
+| **A little inspiration.** Load sample briefs and breakdowns and make them your own. | **Ideas that stay with you.** Independent drafts survive tab changes, settings dialogs and application restarts on the same device. |
 
 ![Sound Studio's Music workspace with genre, mood and tempo draft controls](docs/screenshots/music-workspace.png)
 
 *The actual Music shell. Generation and audio controls are deliberately unavailable until a backend exists.*
+
+![Sound Studio's Decomposer workspace with analysis focus, reference tempo, stem separation and lyric transcription draft controls](docs/screenshots/decomposer-workspace.png)
+
+*The actual Decomposer shell. Reference audio import, stem separation and lyric transcription are planned capabilities.*
 
 ## Inside the shell
 
@@ -63,7 +67,8 @@ See the [guide](GUIDE.md) for workflow details, local storage, development comma
 
 These are goals, **not shipped capabilities**:
 
-- Local text-to-sound and text-to-music models, with explicit model downloads and hardware-fit guidance.
+- Local text-to-sound, text-to-music and music-decomposition models, with explicit model downloads and hardware-fit guidance.
+- Stem separation, tempo/harmony analysis, detailed musical captioning and lyric transcription to inform new musical variations.
 - Real waveform previews, playback, variation comparison and loop refinement.
 - Audio import, an organized asset library and export for game and media projects.
 - Durable project files and output provenance, including the actual model, prompt and seed used.
