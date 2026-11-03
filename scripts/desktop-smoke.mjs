@@ -38,6 +38,8 @@ try {
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1440, 1000))
   await assertNoOverflow(page)
   assert.equal(await page.locator('.workspace-tabs svg').count(), 0, 'Workspace tabs are text-only')
+  assert.equal(await page.locator('.workspace-tab-divider').textContent(), '|')
+  assert.equal(await page.locator('.workspace-tab-divider').getAttribute('aria-hidden'), 'true')
   assert.match(await page.locator('.brand').innerText(), /sound studio/)
   assert.match(await page.getByRole('tab', { name: 'Effects', exact: true }).evaluate(element => getComputedStyle(element).fontFamily), /Segoe UI Variable/)
   assert.equal(await page.getByRole('tab', { name: 'Effects', exact: true }).evaluate(element => getComputedStyle(element).fontSize), '19px')

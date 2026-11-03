@@ -1,4 +1,4 @@
-import { useRef, useState, type KeyboardEvent } from 'react'
+import { Fragment, useRef, useState, type KeyboardEvent } from 'react'
 import {
   ArrowDownToLine, ArrowRight, AudioLines, Check, ChevronRight, CircleHelp,
   Clock3, FolderOpen, Headphones, Info, Layers3, Library, ListMusic,
@@ -64,11 +64,14 @@ export function App() {
         <span>sound <strong>studio</strong><small>LOCAL SOUND. LIMITLESS IDEAS.</small></span>
       </a>
       <nav className="workspace-tabs" role="tablist" aria-label="Sound workspace" onKeyDown={navigateTabs}>
-        {(['effects', 'music'] as const).map(tab => <button key={tab} id={`${tab}-tab`} role="tab"
-          className={workspace === tab ? 'active' : ''} aria-selected={workspace === tab}
-          aria-controls={`${tab}-panel`} tabIndex={workspace === tab ? 0 : -1} onClick={() => selectWorkspace(tab)}>
-          {tab === 'effects' ? 'Effects' : 'Music'}
-        </button>)}
+        {(['effects', 'music'] as const).map(tab => <Fragment key={tab}>
+          {tab === 'music' && <span className="workspace-tab-divider" aria-hidden="true">|</span>}
+          <button id={`${tab}-tab`} role="tab"
+            className={workspace === tab ? 'active' : ''} aria-selected={workspace === tab}
+            aria-controls={`${tab}-panel`} tabIndex={workspace === tab ? 0 : -1} onClick={() => selectWorkspace(tab)}>
+            {tab === 'effects' ? 'Effects' : 'Music'}
+          </button>
+        </Fragment>)}
       </nav>
       <div className="topbar-actions">
         <button className="subtle-button" onClick={openModels} aria-haspopup="dialog"><SlidersHorizontal size={15} /> Model Settings</button>
