@@ -8,6 +8,7 @@ import { normalizeEndpoint } from '../shared/generation'
 import { comfyLaunchArguments, type LauncherPhase, type LauncherStatus } from '../shared/launcher'
 import { candidateFolders, detectComfyInstall, findComfyInstall, type ComfyInstall } from './comfyInstall'
 import { ComfyClient } from './comfyui'
+import { installOutputNode, outputNodeState } from './outputNode'
 
 interface StoredLauncher { version: 1; folder: string | null }
 
@@ -77,6 +78,7 @@ export class ComfyLauncher {
       folder: install?.folder ?? this.stored.folder,
       layout: install?.layout ?? null,
       installError: error,
+      outputNode: install ? await outputNodeState(install.mainScript).catch(() => null) : null,
       phase: this.phase,
       endpoint: this.endpoint,
       message: this.message,
@@ -110,11 +112,16 @@ export class ComfyLauncher {
       if (this.endpoint === endpoint) return this.status()
       throw new Error(`Sound Studio already started ComfyUI at ${this.endpoint}. Stop it first.`)
     }
+    const { install, error } = this.install()
+    // Installing the node is quick and lets audio save even where PyAV/FFmpeg are unavailable. A failure is reported, not fatal.
+    let nodeProblem = ''
+    if (install) {
+      try { await installOutputNode(install.mainScript) } catch (nodeError) { nodeProblem = ` The audio output node could not be installed: ${errorText(nodeError)}` }
+    }
     if (await reachable(endpoint)) {
-      this.message = `ComfyUI is already running at ${endpoint}.`
+      this.message = `ComfyUI is already running at ${endpoint}.${nodeProblem}`
       return this.status()
     }
-    const { install, error } = this.install()
     if (!install) throw new Error(error || 'Choose your ComfyUI folder first.')
 
     mkdirSync(join(app.getPath('userData'), 'logs'), { recursive: true })
@@ -162,7 +169,7 @@ export class ComfyLauncher {
       if (await reachable(endpoint)) {
         if (this.child !== child) throw new Error(this.message)
         this.phase = 'running'
-        this.message = `ComfyUI is running at ${endpoint}.`
+        this.message = `ComfyUI is running at ${endpoint}.${nodeProblem}`
         await this.notify()
         return this.status()
       }
@@ -187,6 +194,25 @@ export class ComfyLauncher {
       this.phase = 'stopped'
     }
     if (reason) this.message = reason
+    await this.notify()
+    return this.status()
+  }
+
+  /** Installs or updates the audio output node, restarting ComfyUI when Sound Studio started it so the node loads. */
+  async installNode(): Promise<LauncherStatus> {
+    await this.load()
+    if (this.phase === 'starting') throw new Error('Wait for ComfyUI to finish starting.')
+    const { install, error } = this.install()
+    if (!install) throw new Error(error || 'Choose your ComfyUI folder first.')
+    const changed = await installOutputNode(install.mainScript)
+    const endpoint = this.endpoint
+    if (changed && this.child && endpoint && !this.busy()) {
+      await this.stop()
+      return this.start(endpoint)
+    }
+    this.message = !changed ? 'The audio output node is already installed.'
+      : this.child ? 'Audio output node installed. Restart ComfyUI after the current generation to load it.'
+      : 'Audio output node installed. ComfyUI loads it the next time it starts; restart it if it is already running.'
     await this.notify()
     return this.status()
   }

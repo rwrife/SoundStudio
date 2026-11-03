@@ -73,9 +73,9 @@ export const modelProfiles: Record<ModelProfileId, ModelProfile> = {
     recommendedVramGb: 12,
     checkpoint: { pattern: /ace[-_ ]?step[-_ ]?(v)?1[._]5/i, suggested: 'ace_step_1.5_turbo_aio.safetensors' },
     requiredNodes: ['CheckpointLoaderSimple', 'ModelSamplingAuraFlow', 'TextEncodeAceStepAudio1.5', 'ConditioningZeroOut', 'EmptyAceStep1.5LatentAudio', 'KSampler', 'VAEDecodeAudio', 'SaveAudio'],
-    source: 'https://huggingface.co/Comfy-Org/ace_step_1.5_ComfyUI_files',
-    license: 'MIT. Review the ACE-Step 1.5 model card before use.',
-    install: ['Download checkpoints/ace_step_1.5_turbo_aio.safetensors (about 9.3 GB) to ComfyUI/models/checkpoints/.']
+    source: 'https://huggingface.co/Comfy-Org/ACE-Step-1.5',
+    license: 'Apache-2.0 (as published by Comfy-Org). Review the ACE-Step 1.5 model card before use.',
+    install: ['Download checkpoints/ace_step_1.5_turbo_aio.safetensors (about 10 GB) from Comfy-Org/ACE-Step-1.5 to ComfyUI/models/checkpoints/.']
   },
   'ace-step-v1-3.5b': {
     id: 'ace-step-v1-3.5b',
@@ -159,7 +159,12 @@ export const modelProfiles: Record<ModelProfileId, ModelProfile> = {
 }
 
 export const profilesFor = (workspace: Workspace) => Object.values(modelProfiles).filter(profile => profile.workspaces.includes(workspace))
-export const builtInRequiredNodes = [...new Set(Object.values(modelProfiles).flatMap(profile => profile.requiredNodes))]
+/** Sound Studio's own ComfyUI node. It writes WAV with Python's standard library, so it works where PyAV/FFmpeg do not. */
+export const outputNodeClass = 'SoundStudioSaveWAV'
+export type AudioOutputNode = 'SaveAudio' | typeof outputNodeClass
+const audioOutputNodes: ReadonlyArray<string> = ['SaveAudio', outputNodeClass]
+
+export const builtInRequiredNodes = [...new Set([...Object.values(modelProfiles).flatMap(profile => profile.requiredNodes), outputNodeClass])]
 
 export function estimateCostUsd(profile: ModelProfile, seconds: number) {
   return profile.provider ? Math.round(profile.provider.usdPerSecond * seconds * 100) / 100 : 0
@@ -177,7 +182,7 @@ export const maxWorkflowBytes = 512 * 1024
 export interface CustomWorkflow {
   name: string
   graph: ComfyWorkflow
-  /** The single SaveAudio node whose FLAC output becomes the take. */
+  /** The single Save Audio node whose output becomes the take. */
   outputNodeId: string
   placeholders: Placeholder[]
 }
@@ -219,9 +224,9 @@ export function validateCustomWorkflow(value: unknown): CustomWorkflow {
         return fail(`Node "${id}" links to missing node "${input[0]}".`)
       }
     }
-    if (node.class_type === 'SaveAudio') saveNodes.push(id)
+    if (audioOutputNodes.includes(node.class_type)) saveNodes.push(id)
   }
-  if (saveNodes.length !== 1) return fail('The workflow must contain exactly one Save Audio node. Sound Studio stores its FLAC output as the take.')
+  if (saveNodes.length !== 1) return fail('The workflow must contain exactly one Save Audio node. Sound Studio stores its output as the take.')
   const found = new Set<string>()
   collectPlaceholders(graph, found)
   const unknown = [...found].filter(name => !(placeholders as readonly string[]).includes(name))
@@ -265,7 +270,7 @@ export interface ModelChoice { profileId: ModelProfileId; checkpoint: string; te
 export interface BackendSettings {
   version: 1
   endpoint: string
-  /** Set when the user explicitly connects; reconnects on launch until they disconnect. */
+  /** Checks the local ComfyUI on launch until the user disconnects. The address is always loopback. */
   connectOnLaunch: boolean
   models: Record<Workspace, ModelChoice>
 }
@@ -275,7 +280,7 @@ export function createDefaultBackendSettings(): BackendSettings {
   return {
     version: 1,
     endpoint: defaultEndpoint,
-    connectOnLaunch: false,
+    connectOnLaunch: true,
     models: {
       effects: { profileId: 'stable-audio-open-1.0', ...blank },
       music: { profileId: 'ace-step-1.5-turbo', ...blank }
@@ -367,7 +372,8 @@ export function assessReadiness(choice: ModelChoice, status: BackendStatus | nul
   const issues: string[] = []
   if (profile.execution === 'workflow' && !choice.workflow) issues.push('Import a ComfyUI API workflow in Model Settings.')
   if (!status) return { ready: false, remote, checkpoint: null, textEncoder: null, issues: ['Connect to a local ComfyUI server.', ...issues] }
-  const missingNodes = profile.requiredNodes.filter(node => !status.availableNodes.includes(node))
+  const missingNodes = profile.requiredNodes.filter(node => !status.availableNodes.includes(node)
+    && !(node === 'SaveAudio' && status.availableNodes.includes(outputNodeClass)))
   if (missingNodes.length) issues.push(`ComfyUI is missing nodes: ${missingNodes.join(', ')}. Update ComfyUI${profile.execution === 'workflow' ? ' or install the custom nodes' : ''}.`)
   if (profile.execution === 'workflow' && choice.workflow) {
     if (!inspection) issues.push('Checking the workflow nodes in ComfyUI...')
@@ -553,10 +559,10 @@ function fillPlaceholders(value: unknown, values: Record<Placeholder, string | n
   return value
 }
 
-export function buildComfyWorkflow(request: GenerationRequest): { workflow: ComfyWorkflow; outputNodeId: string } {
+export function buildComfyWorkflow(request: GenerationRequest, output: AudioOutputNode = 'SaveAudio'): { workflow: ComfyWorkflow; outputNodeId: string } {
   const prefix = `sound-studio/${request.workspace}`
   const text = describePrompt(request)
-  const save = (audio: [string, number]) => ({ class_type: 'SaveAudio', inputs: { audio, filename_prefix: prefix } })
+  const save = (audio: [string, number]) => ({ class_type: output, inputs: { audio, filename_prefix: prefix } })
   switch (request.profileId) {
     case 'stable-audio-open-1.0':
       return {
@@ -633,7 +639,10 @@ export function buildComfyWorkflow(request: GenerationRequest): { workflow: Comf
         seconds: request.durationSeconds, seed: request.seed, bpm: request.tempo ?? 0, key: request.musicKey, title: request.title
       }
       const workflow = fillPlaceholders(custom.graph, values) as ComfyWorkflow
-      workflow[custom.outputNodeId] = { ...workflow[custom.outputNodeId], inputs: { ...workflow[custom.outputNodeId].inputs, filename_prefix: prefix } }
+      const node = workflow[custom.outputNodeId]
+      workflow[custom.outputNodeId] = output === outputNodeClass
+        ? { class_type: output, inputs: { audio: node.inputs.audio, filename_prefix: prefix } }
+        : { ...node, inputs: { ...node.inputs, filename_prefix: prefix } }
       return { workflow, outputNodeId: custom.outputNodeId }
     }
   }
@@ -662,8 +671,12 @@ export function interpretHistory(entry: unknown, outputNodeId: string): HistoryO
   if (event('execution_interrupted')) return { kind: 'interrupted' }
   const failure = event('execution_error')
   if (status.status_str === 'error' || failure) {
-    const detail = isRecord(failure) ? `${typeof failure.node_type === 'string' ? `${failure.node_type}: ` : ''}${typeof failure.exception_message === 'string' ? failure.exception_message.trim() : 'Unknown error'}` : 'Unknown error'
-    return { kind: 'error', message: `ComfyUI could not generate this take. ${detail}`.slice(0, 1200) }
+    const nodeType = isRecord(failure) && typeof failure.node_type === 'string' ? failure.node_type : ''
+    const detail = isRecord(failure) ? `${nodeType ? `${nodeType}: ` : ''}${typeof failure.exception_message === 'string' ? failure.exception_message.trim() : 'Unknown error'}` : 'Unknown error'
+    const hint = /^(SaveAudio|PreviewAudio)/.test(nodeType)
+      ? ' The audio was generated, but ComfyUI could not encode it. This happens when PyAV/FFmpeg is missing or blocked on this PC. Open Backend connections and install the Sound Studio audio output node.'
+      : ''
+    return { kind: 'error', message: `ComfyUI could not generate this take. ${detail.slice(0, 900)}${hint}` }
   }
   const outputs = isRecord(entry.outputs) ? entry.outputs : {}
   const node = isRecord(outputs[outputNodeId]) ? outputs[outputNodeId] : undefined

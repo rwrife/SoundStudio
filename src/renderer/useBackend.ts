@@ -131,6 +131,18 @@ export function useBackend() {
     }
   }, [bridge])
 
+  const installOutputNode = useCallback(async () => {
+    if (!bridge) return
+    setLauncherError('')
+    try {
+      setLauncher(await unwrap(bridge.installOutputNode()))
+    } catch (error) {
+      setLauncherError(message(error))
+      return
+    }
+    await check(settings.endpoint)
+  }, [bridge, check, settings.endpoint])
+
   const launcherAction = useCallback(async (run: () => Promise<Result<LauncherStatus>>) => {
     setLauncherError('')
     try { setLauncher(await unwrap(run())) } catch (error) { setLauncherError(message(error)) }
@@ -231,7 +243,8 @@ export function useBackend() {
 
   return {
     available: !!bridge, settings, settingsError, connection, status, cloud, readiness, inspections, jobs, takes, unreadableTakes, takesError,
-    launcher, launcherError, startComfy, stopComfy,
+    launcher, launcherError, startComfy, stopComfy, installOutputNode,
+    refreshLauncher: () => bridge ? launcherAction(() => bridge.getLauncher()) : Promise.resolve(),
     chooseComfyFolder: () => bridge ? launcherAction(() => bridge.chooseComfyFolder()) : Promise.resolve(),
     showComfyLog: async () => { if (bridge) { const result = await bridge.showComfyLog(); setLauncherError(result.ok ? '' : result.error) } },
     connect, disconnect, recheck: () => check(settings.endpoint), chooseModel, configureCloud, start, cancel, exportTake, deleteTake, refreshTakes

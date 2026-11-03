@@ -7,7 +7,8 @@ import { promisify } from 'node:util'
 const run = promisify(execFile)
 
 // Test fixture: a folder shaped like a ComfyUI source checkout (main.py plus a real venv) whose main.py only
-// answers /system_stats and /object_info and records its arguments. It is not ComfyUI and generates nothing.
+// answers /system_stats and /object_info and records its arguments. Like ComfyUI, it reports Sound Studio's WAV output
+// node only when that node was installed in custom_nodes before it started. It is not ComfyUI and generates nothing.
 const mainPy = `import argparse, json, os, sys, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -16,7 +17,9 @@ parser.add_argument('--listen', required=True)
 parser.add_argument('--port', type=int, required=True)
 parser.add_argument('--disable-auto-launch', action='store_true')
 args = parser.parse_args()
-with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'launch-args.json'), 'w') as handle:
+here = os.path.dirname(os.path.abspath(__file__))
+wav_node = os.path.isfile(os.path.join(here, 'custom_nodes', 'sound_studio_nodes', '__init__.py'))
+with open(os.path.join(here, 'launch-args.json'), 'w') as handle:
     json.dump(sys.argv[1:], handle)
 
 class Handler(BaseHTTPRequestHandler):
@@ -24,7 +27,8 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == '/system_stats':
             body = {'system': {'comfyui_version': '0.3.0-launched'}, 'devices': []}
         elif self.path.startswith('/object_info/'):
-            body = {}
+            name = self.path[len('/object_info/'):]
+            body = {name: {'name': name, 'input': {'required': {}}}} if wav_node and name == 'SoundStudioSaveWAV' else {}
         else:
             self.send_response(404)
             self.end_headers()

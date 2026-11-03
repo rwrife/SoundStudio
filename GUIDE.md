@@ -40,11 +40,31 @@ npm run dev
 ## Set up ComfyUI
 
 1. Install a recent ComfyUI build: the portable or desktop release, or a source checkout. Older builds may lack the ACE-Step 1.5 or partner nodes; Model Settings names any missing nodes.
-2. Start ComfyUI, either from Sound Studio (below) or yourself. It listens on `http://127.0.0.1:8188` by default.
-3. In Sound Studio choose **Backend not connected**, check the address and choose **Connect**. The dialog shows the ComfyUI version, devices with VRAM, and the number of checkpoints found. Sound Studio reconnects on the next launch until you choose **Disconnect**.
-4. Open **Model Settings**, pick a model for each workspace and follow its setup steps until it shows **READY**. After adding model files, restart ComfyUI (or refresh its model list) and choose **Recheck**.
+2. Open Sound Studio. It looks for ComfyUI at `http://127.0.0.1:8188` on every launch. If ComfyUI is not running, the header shows **Setup needs attention** and the Effects and Music panels show **ComfyUI is not running**.
+3. Choose either one to open **Backend connections**, then choose **Start local ComfyUI** (see below), or start ComfyUI yourself, type its address and press Enter.
+4. Work down the **Readiness checks** until each shows a check mark. Each row that needs attention has a button that fixes it or opens the right place. After adding model files, restart ComfyUI (or refresh its model list) and choose **Refresh**.
 
 Only `127.0.0.1`, `localhost` and `[::1]` are accepted. Sound Studio does not talk to remote ComfyUI servers. Even so, any other program on this device can reach an open ComfyUI port, so keep ComfyUI bound to loopback.
+
+### Readiness checks
+
+| Check | What it reports |
+|---|---|
+| ComfyUI folder | The detected or chosen install and its layout. **Choose folder** when none was found. |
+| ComfyUI server | The version and address, and whether Sound Studio started it. **Start** when it is not running. |
+| Graphics processor | The devices and VRAM that ComfyUI reports. A warning when it reports only the processor. |
+| Audio output node | Whether Sound Studio's WAV output node is installed and loaded (below). **Install** or **Restart ComfyUI** when needed. |
+| Effects model, Music model | Whether the selected model is ready, with the checkpoint in use, or what is missing. **Model Settings** opens that workspace's models. |
+
+The header reads **Local backends ready** when nothing is blocked. Checks report only what ComfyUI and the folder actually show; they do not measure performance.
+
+### Audio output node
+
+ComfyUI's own **Save Audio** node encodes through PyAV and FFmpeg. On some PCs, such as those whose application control policy blocks FFmpeg's libraries, PyAV cannot load and every audio save fails. Sound Studio therefore installs a small node, **Save Audio WAV (Sound Studio)** (`SoundStudioSaveWAV`), that writes 16-bit PCM WAV with Python's standard library. When ComfyUI has it, Sound Studio uses it for every job, including imported workflows; otherwise it falls back to Save Audio.
+
+- **Start local ComfyUI** installs or updates it in `custom_nodes\sound_studio_nodes\__init__.py` of the ComfyUI folder before starting. The **Install** action does the same for a ComfyUI that is already running, and restarts it if Sound Studio started it.
+- The file begins with `# Managed by Sound Studio.`. Sound Studio never overwrites a file at that path without this marker, and it writes nothing else into the ComfyUI folder.
+- ComfyUI loads custom nodes only when it starts. A ComfyUI you started yourself needs a restart to pick it up.
 
 ### Let Sound Studio start ComfyUI
 
@@ -58,6 +78,7 @@ It recognizes two layouts:
 - If ComfyUI is somewhere else, choose the folder icon beside the field and pick it. Sound Studio remembers that choice.
 - Sound Studio runs that install's own Python with `main.py --listen 127.0.0.1 --port <port> --disable-auto-launch` (the port comes from the address), waits up to five minutes for it to answer, and then connects. The first start can be slow while ComfyUI loads custom nodes. If ComfyUI is already running at the address, Sound Studio connects to it instead of starting a second copy.
 - **Stop ComfyUI** ends that process. It is refused while a generation is running. Sound Studio also stops it when you quit. On the next launch, choose **Start local ComfyUI** again.
+- **Disconnect** stops checking a ComfyUI you started yourself, including on later launches, until you start or connect again.
 Sound Studio only stops a ComfyUI it started itself. Console output goes to `logs\comfyui.log` in the app profile; if it stops unexpectedly, choose **Show log** to find it. A folder you pick is stored in `comfyui-launcher.json` in the profile. The ComfyUI Desktop app (which listens on port 8000) cannot be started from here: start it yourself and connect to its address.
 
 ## Models
@@ -71,7 +92,7 @@ These open-weight models run through ComfyUI's built-in nodes. Download them fro
 | Model | Workspaces | File | Notes |
 |---|---|---|---|
 | Stable Audio Open 1.0 | Effects, Music | `models/checkpoints/stable-audio-open-1.0.safetensors` and `models/text_encoders/t5-base.safetensors` | 1-47 s. Stability AI Community License. About 6 GB VRAM suggested. |
-| ACE-Step 1.5 Turbo | Music | `models/checkpoints/ace_step_1.5_turbo_aio.safetensors` | 10-600 s, lyrics, tempo and key. MIT. About 12 GB VRAM suggested. |
+| ACE-Step 1.5 Turbo | Music | `models/checkpoints/ace_step_1.5_turbo_aio.safetensors` from [Comfy-Org/ACE-Step-1.5](https://huggingface.co/Comfy-Org/ACE-Step-1.5) (about 10 GB) | 10-600 s, lyrics, tempo and key. Apache-2.0 as published by Comfy-Org. About 12 GB VRAM suggested. |
 | ACE-Step v1 3.5B | Music | `models/checkpoints/ace_step_v1_3.5b.safetensors` | 5-240 s, lyrics. Apache-2.0. About 10 GB VRAM suggested. |
 
 Sound Studio picks a matching checkpoint automatically, or you can choose a specific file. Hardware fit compares the suggested VRAM with what ComfyUI reports. It is guidance, not a measurement of real performance.
@@ -98,7 +119,7 @@ Use **Custom ComfyUI workflow** for models that ComfyUI runs through custom node
 
 1. Install the custom nodes and models, and check that the workflow runs in ComfyUI.
 2. Replace hard-coded inputs with placeholders. Use `{{prompt}}` or `{{tags}}`, plus any of `{{negative}}`, `{{lyrics}}`, `{{seconds}}`, `{{seed}}`, `{{bpm}}`, `{{key}}` and `{{title}}`.
-3. End the graph with exactly one **Save Audio** node, then choose **Workflow > Export (API)**.
+3. End the graph with exactly one **Save Audio** node (or **Save Audio WAV (Sound Studio)**), then choose **Workflow > Export (API)**. When ComfyUI has the Sound Studio node, Sound Studio swaps it in for Save Audio.
 4. In Model Settings choose **Import workflow JSON**.
 
 When an input's whole value is a placeholder, such as `"{{seed}}"`, it is replaced with the typed value, so numbers stay numbers. Placeholders inside longer text are replaced as text. Sound Studio checks that ComfyUI has every node the workflow uses. It warns, and requires the cloud opt-in, if the workflow contains partner nodes. `{{bpm}}` and `{{key}}` are music-only.
@@ -159,10 +180,10 @@ If saved data cannot be read or has an unknown format, an error banner appears a
 
 | Location | Responsibility |
 |---|---|
-| `src/main` | Lifecycle and window security. Also: the ComfyUI client (`comfyui.ts`), job monitor (`generation.ts`), take store (`takes.ts`), encrypted cloud access (`cloud.ts`), the ComfyUI launcher (`launcher.ts`, `comfyInstall.ts`) and validated IPC handlers (`ipc.ts`). |
+| `src/main` | Lifecycle and window security. Also: the ComfyUI client (`comfyui.ts`), job monitor (`generation.ts`), take store (`takes.ts`), encrypted cloud access (`cloud.ts`), the ComfyUI launcher (`launcher.ts`, `comfyInstall.ts`), the WAV output node installer (`outputNode.ts`) and validated IPC handlers (`ipc.ts`). |
 | `src/preload` | A narrow, typed bridge (`window.soundStudio`). It has no generic IPC, filesystem or shell access. |
-| `src/renderer` | React workspaces, Model Settings, the take player, backend state, dialogs and draft storage. |
-| `src/shared` | Draft schema and migration, model profiles, readiness, request validation, workflow builders and audio inspection. |
+| `src/renderer` | React workspaces, Backend connections, Model Settings, the take player, backend state, dialogs and draft storage. |
+| `src/shared` | Draft schema and migration, model profiles, readiness and backend checks, request validation, workflow builders and audio inspection. |
 | `tests` | Unit tests for drafts, generation contracts and audio parsing. |
 | `scripts` | The Electron smoke test, a mock ComfyUI test fixture and screenshot capture. |
 
@@ -170,7 +191,7 @@ Electron uses context isolation, sandboxing and disabled Node integration. Windo
 
 Every IPC call is validated again in the main process: loopback endpoints, generation requests, custom workflows and take IDs. The main process builds the ComfyUI graph, sends it, follows progress over WebSocket and history polling, and downloads and validates the output. The renderer never receives the API key or arbitrary file paths.
 
-The launcher accepts a ComfyUI folder only from the main-process folder picker or its own detection, never from the renderer. It runs only a recognized layout's own Python, without a shell, with fixed arguments that bind ComfyUI to loopback. It never stops a process it did not start.
+The launcher accepts a ComfyUI folder only from the main-process folder picker or its own detection, never from the renderer. It runs only a recognized layout's own Python, without a shell, with fixed arguments that bind ComfyUI to loopback. It never stops a process it did not start. The only file it writes into the ComfyUI folder is the marked output node, resolved inside that folder's `custom_nodes` and written atomically.
 
 ## Development and validation
 
@@ -181,12 +202,12 @@ npm run build
 npm run test:desktop
 ```
 
-`npm test` covers drafts and migration, model profiles, ComfyUI install detection and launch arguments, the loopback endpoint policy, request validation, workflow builders, custom workflow placeholders, readiness and cloud gating, history interpretation and WAV/FLAC parsing.
+`npm test` covers drafts and migration, model profiles, ComfyUI install detection and launch arguments, output node installation, readiness checks, the loopback endpoint policy, request validation, workflow builders and output node selection, custom workflow placeholders, readiness and cloud gating, history interpretation and WAV/FLAC parsing.
 
 `npm run test:desktop` builds and launches the real Electron app with an isolated temporary profile. It runs against `scripts/mock-comfyui.mjs`, a test fixture that speaks the ComfyUI HTTP and WebSocket API and returns a synthesized test tone. The smoke test covers:
 
-- Connection policy.
-- One-click start from the canvas and dialog, stop, and stop-on-quit for a fake ComfyUI install (`scripts/fake-comfyui-install.mjs`), which needs Python and is skipped without it.
+- Connection policy, the first-run check and the readiness checks.
+- One-click start from the canvas and dialog, output node installation, stop, and stop-on-quit for a fake ComfyUI install (`scripts/fake-comfyui-install.mjs`), which needs Python and is skipped without it.
 - Local, failed and cancelled jobs.
 - Cloud opt-in and API-key handling.
 - ACE-Step and custom workflow graphs.
@@ -201,17 +222,19 @@ Capture the actual app for documentation:
 npm run screenshots
 ```
 
-This runs the same checks and writes `effects-workspace.png`, `model-settings.png` and `music-workspace.png` to `docs/screenshots`. They are captured before connecting to the mock, so they never show test-fixture audio. Inspect captures before committing.
+This runs the same checks and writes `effects-workspace.png`, `model-settings.png`, `music-workspace.png` and `backend-connections.png` to `docs/screenshots`. They are captured before connecting to the mock, so they never show test-fixture audio. Inspect captures before committing.
 
 ## Troubleshooting
 
 | Symptom | Action |
 |---|---|
-| "ComfyUI is not reachable" | Start ComfyUI, check the port in its console and choose **Recheck**. |
+| "ComfyUI is not reachable" | Start ComfyUI, check the port in its console and choose **Refresh** in Backend connections. |
 | "main.py was not found" or "not its Python environment" | Choose the portable build's root folder, or a source checkout with a `venv` or `.venv`. For the ComfyUI Desktop app, start it yourself and connect. |
 | ComfyUI stops or never answers after **Start local ComfyUI** | Choose **Show log** and read the end of `comfyui.log`. Common causes are a busy port, a missing Python package or a failing custom node. |
+| Jobs fail in Save Audio or Preview Audio, mentioning PyAV, `av` or FFmpeg | ComfyUI's audio encoder cannot load on this PC. Install the Sound Studio output node from the **Audio output node** check, or choose **Start local ComfyUI**, which installs it, and restart ComfyUI. |
+| "...was not created by Sound Studio" | A different file sits at `custom_nodes\sound_studio_nodes\__init__.py`. Move it away if you do not need it, then choose **Install** again. |
 | "Only ComfyUI running on this device..." | Remote servers are not supported. Run ComfyUI locally on loopback. |
-| A model shows **NEEDS SETUP** | Follow the listed issues. Missing nodes need a newer ComfyUI or custom nodes. Missing files need to go in the named `models` folder; then restart ComfyUI and choose **Recheck**. |
+| A model shows **NEEDS SETUP** | Follow the listed issues. Missing nodes need a newer ComfyUI or custom nodes. Missing files need to go in the named `models` folder; then restart ComfyUI and choose **Refresh**. |
 | Cloud models stay disabled | Store a Comfy.org API key first, then tick **Allow cloud partner models**. If encryption is unavailable, the key cannot be stored. |
 | ComfyUI rejects the workflow | The message lists failing nodes and inputs. Check model files and custom nodes in ComfyUI itself. |
 | A job fails with an out-of-memory error | Choose a shorter duration or a smaller model, or close other GPU applications. |

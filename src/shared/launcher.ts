@@ -2,6 +2,8 @@
 
 export type ComfyLayout = 'portable' | 'venv'
 export type LauncherPhase = 'stopped' | 'starting' | 'running' | 'exited'
+/** Whether Sound Studio's WAV output node is in the install's custom_nodes folder. ComfyUI loads it at startup. */
+export type OutputNodeState = 'installed' | 'outdated' | 'missing'
 
 export interface LauncherStatus {
   /** The folder the user chose, or else an install found in a usual location. */
@@ -9,6 +11,8 @@ export interface LauncherStatus {
   layout: ComfyLayout | null
   /** Why the folder cannot be started, if it cannot. */
   installError: string
+  /** Null when there is no recognized install to check. */
+  outputNode: OutputNodeState | null
   /** Only describes a process Sound Studio started. A ComfyUI started elsewhere is always 'stopped' here. */
   phase: LauncherPhase
   endpoint: string | null

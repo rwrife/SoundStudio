@@ -34,6 +34,7 @@ Development and the smoke test need no models or GPU; the launcher smoke check u
 - Keep processing local-first. Never silently send prompts or assets to a remote service. Remote inference, if introduced, must require explicit informed opt-in.
 - Preserve Electron context isolation, sandboxing, the narrow preload bridge and validation at IPC and filesystem boundaries. Never expose arbitrary shell execution or renderer filesystem access. Only accept loopback ComfyUI endpoints.
 - Start ComfyUI only from a folder chosen in the main-process picker or found by detection, only for a recognized layout, with its own Python, no shell and fixed loopback arguments. Never stop a process Sound Studio did not start.
+- The only file Sound Studio writes into a ComfyUI folder is its marked WAV output node in `custom_nodes\sound_studio_nodes`. Never overwrite a file there that lacks the `# Managed by Sound Studio.` marker.
 - Reuse shared types, defaults, validation, components and semantic CSS tokens. Keep the implementation simple and avoid parallel workflow or settings systems.
 - Preserve independent Effects and Music drafts across navigation and settings. Version persisted schemas and migrate deliberately; do not silently overwrite malformed or unsupported saved data.
 - Display actionable errors. Do not disguise failed or unavailable inference as completed audio, generate fake library entries, or substitute analytic fixtures for AI output.
@@ -49,6 +50,7 @@ Development and the smoke test need no models or GPU; the launcher smoke check u
 - Dedicate the main surface to audio preview and review, with contextual transport and take trays. Keep empty states honest and disable generation until the backend and model are ready.
 - Keep detailed configuration in an explicitly opened **Model Settings** panel. Opening it must not reset tabs, steps or draft values.
 - Show a compact **Local + model** summary beside AI actions, including when no model is selected. Never claim backend readiness or measured hardware without a real check.
+- Keep backend status in the header button and the **Backend connections** dialog: a one-click **Start local ComfyUI** and **Readiness checks** built by `src/shared/backendChecks.ts`. Each check reports only what was observed and offers the action that fixes it.
 - Use **dark neutral-blue canvases, blue-gray panels, off-white text and pale-blue accents**. Use shared semantic CSS tokens, readable muted text and subtle borders. Preserve distinct warning/error treatment; never rely on color alone for status.
 - Reuse spacing, stepper, controls and panel treatments across both workspaces. Keep navigation visible while desktop regions scroll, preserve the 960 by 700 minimum window layout, and retain the narrow-preview fallback.
 - Give controls accessible names and selected/current states. Support keyboard tab navigation, modal focus containment, focus restoration and reduced motion. Hidden workspace content must not remain operable.

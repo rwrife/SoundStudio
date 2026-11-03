@@ -8,7 +8,7 @@ const gb = 1024 ** 3
 const nodes = {
   CheckpointLoaderSimple: { input: { required: { ckpt_name: [['stable-audio-open-1.0.safetensors', 'ace_step_1.5_turbo_aio.safetensors', 'sd_xl_base_1.0.safetensors']] } } },
   CLIPLoader: { input: { required: { clip_name: [['t5-base.safetensors']], type: ['COMBO', { options: ['stable_diffusion', 'stable_audio', 'ace'] }] } } },
-  CLIPTextEncode: {}, ConditioningStableAudio: {}, EmptyLatentAudio: {}, KSampler: {}, VAEDecodeAudio: {}, SaveAudio: {},
+  CLIPTextEncode: {}, ConditioningStableAudio: {}, EmptyLatentAudio: {}, KSampler: {}, VAEDecodeAudio: {}, SaveAudio: {}, SoundStudioSaveWAV: {},
   ModelSamplingAuraFlow: {}, 'TextEncodeAceStepAudio1.5': {}, ConditioningZeroOut: {}, 'EmptyAceStep1.5LatentAudio': {},
   MusicgenGenerate: {},
   MireloTextToSFX: { api_node: true }, ByteDanceSeedAudio: { api_node: true }
@@ -103,7 +103,7 @@ export async function startMockComfyUI() {
       if (unknown.length) {
         return json(response, 400, { error: { message: 'Prompt outputs failed validation' }, node_errors: Object.fromEntries(unknown.map(([id, node]) => [id, { class_type: node.class_type, errors: [{ message: 'Node not found' }] }])) })
       }
-      const outputNodeId = Object.keys(graph).find(id => graph[id].class_type === 'SaveAudio')
+      const outputNodeId = Object.keys(graph).find(id => ['SaveAudio', 'SoundStudioSaveWAV'].includes(graph[id].class_type))
       const text = JSON.stringify(graph)
       const id = crypto.randomUUID()
       const job = { id, number: counter++, clientId: data.client_id, workflow: graph, outputNodeId, state: 'pending', mode: text.includes('FAIL') ? 'fail' : text.includes('SLOW') ? 'slow' : 'ok' }

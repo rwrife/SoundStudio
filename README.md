@@ -6,7 +6,7 @@
 
 Sketch the crackle of a campfire, the perfect interface chime, or the soundtrack to somewhere new. Sound Studio gives you two creative workspaces in one blue-toned desktop application, inspired by [Character Studio](https://github.com/rwrife/CharacterStudio). Generation runs on **your own [ComfyUI](https://github.com/comfyanonymous/ComfyUI)** on this device.
 
-**Early preview.** Sound Studio does not bundle or download models. It drives a ComfyUI server that you install and start yourself. Without one, you can still draft and save ideas, but nothing is generated.
+**Early preview.** Sound Studio does not bundle or download models. It drives a ComfyUI that you install; Sound Studio can start it for you with one click. Without one, you can still draft and save ideas, but nothing is generated.
 
 [Get started](#getting-started) | [Features](#features-at-a-glance) | [Models](#models) | [Future directions](#future-directions) | [Full guide](GUIDE.md)
 
@@ -56,7 +56,13 @@ npm install
 npm run dev
 ```
 
-If ComfyUI is installed in a usual place such as `%LOCALAPPDATA%\ComfyUI`, choose **Start local ComfyUI**: Sound Studio starts it on this device and connects. Otherwise choose **Backend not connected** and pick your ComfyUI folder (a portable build or a source checkout with a virtual environment), or start ComfyUI yourself (by default at `http://127.0.0.1:8188`) and choose **Connect**. Open **Model Settings** to check which models are ready.
+Sound Studio looks for ComfyUI when it opens. If it is not running, choose **Setup needs attention** in the header (or **ComfyUI is not running** in the side panel) to open **Backend connections**. If ComfyUI is installed in a usual place such as `%LOCALAPPDATA%\ComfyUI`, choose **Start local ComfyUI**: Sound Studio starts it on this device and connects. Otherwise choose your ComfyUI folder (a portable build or a source checkout with a virtual environment), or start ComfyUI yourself and enter its address. Then follow the **Readiness checks** until each one is ready.
+
+![Sound Studio's Backend connections dialog with a Start local ComfyUI button and a list of readiness checks](docs/screenshots/backend-connections.png)
+
+*Backend connections on a first run, before ComfyUI is started. The folder path is masked.*
+
+On some PCs ComfyUI's own audio saving cannot load FFmpeg. Starting ComfyUI from Sound Studio installs a small WAV output node into its `custom_nodes` folder so takes save anyway. See the [guide](GUIDE.md#audio-output-node).
 
 For a production build:
 
@@ -73,7 +79,7 @@ See the [guide](GUIDE.md) for model setup, cloud access, custom workflows, stora
 
 These are goals, **not shipped capabilities**:
 
-- Guided model downloads and starting a managed ComfyUI from the app.
+- Guided model downloads from the readiness checks.
 - Variations, inpainting and loop refinement for existing takes.
 - Audio import, a searchable asset library and project files for game and media projects.
 

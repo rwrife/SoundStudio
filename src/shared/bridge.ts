@@ -14,6 +14,8 @@ export interface SoundStudioBridge {
   chooseComfyFolder(): Promise<Result<LauncherStatus>>
   startComfy(endpoint: string): Promise<Result<LauncherStatus>>
   stopComfy(): Promise<Result<LauncherStatus>>
+  /** Installs Sound Studio's WAV output node into the detected ComfyUI and restarts it if Sound Studio started it. */
+  installOutputNode(): Promise<Result<LauncherStatus>>
   showComfyLog(): Promise<Result<void>>
   onLauncherUpdate(listener: (status: LauncherStatus) => void): () => void
   inspectWorkflow(endpoint: string, workflow: ComfyWorkflow): Promise<Result<WorkflowInspection>>
@@ -35,6 +37,7 @@ export const channels = {
   launcherFolder: 'launcher:folder',
   launcherStart: 'launcher:start',
   launcherStop: 'launcher:stop',
+  launcherNode: 'launcher:node',
   launcherLog: 'launcher:log',
   launcherUpdate: 'launcher:update',
   inspectWorkflow: 'workflow:inspect',

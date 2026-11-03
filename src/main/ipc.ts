@@ -35,6 +35,7 @@ export function registerIpc({ cloud, takes, generation, launcher, window }: Serv
   handle(channels.launcherFolder, async current => launcher.chooseFolder(current))
   handle(channels.launcherStart, async (_window, endpoint) => launcher.start(endpoint))
   handle(channels.launcherStop, async () => launcher.stop())
+  handle(channels.launcherNode, async () => launcher.installNode())
   handle(channels.launcherLog, async () => launcher.showLog())
   handle(channels.inspectWorkflow, async (_window, endpoint, workflow) => {
     const valid = validateCustomWorkflow({ name: 'Workflow', graph: workflow })

@@ -213,6 +213,28 @@ select { padding-right: 6px; }
 .canvas-empty .start-comfy, .canvas-empty .subtle-button { margin-top: 14px; }
 .launcher-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-top: 14px; }
 .launcher-actions .subtle-button { margin-top: 0; }
+/* Backend connections readiness checks and workspace setup warning */
+.backend-button.warning { color: var(--warning); }
+.section-kicker { color: var(--text-subtle); letter-spacing: 1.65px; font-size: 9px; font-weight: 650; }
+.checks-heading { margin: 26px 0 0; }
+.checks { list-style: none; display: flex; flex-direction: column; gap: 8px; margin: 13px 0 18px; padding: 0; }
+.check { display: flex; gap: 10px; align-items: flex-start; padding: 11px 12px; background: #142233; border: 1px solid #2a4560; border-radius: 5px; color: var(--accent-primary); }
+.check > svg { margin-top: 2px; flex-shrink: 0; }
+.check > div { flex: 1; min-width: 0; }
+.check strong { font-size: 11px; color: var(--text-primary); font-weight: 500; }
+.check p { font-size: 10px; color: var(--text-secondary); line-height: 1.8; margin-top: 4px; overflow-wrap: anywhere; }
+.check.blocked { background: #2f281d; border-color: #564328; color: var(--warning); }
+.check.blocked strong { color: #f0d2a8; }
+.check.blocked p { color: #c3ab88; }
+.check.warning { background: #222a2b; border-color: #4a4a36; color: #d8cf98; }
+.check.pending { background: var(--surface-raised); border-color: var(--border-subtle); color: var(--text-subtle); }
+.check .check-action { margin-top: 0; padding: 6px 10px; font-size: 10px; flex-shrink: 0; }
+.setup-warning { display: flex; gap: 9px; align-items: flex-start; width: 100%; margin-bottom: 12px; padding: 11px 10px; text-align: left; background: #372e1f6b; border: 1px solid #5e4e307a; border-radius: 5px; color: #e4c393; cursor: pointer; font: inherit; }
+.setup-warning > svg { flex-shrink: 0; margin-top: 1px; }
+.setup-warning span { font-size: 11px; line-height: 1.4; }
+.setup-warning small { display: flex; align-items: center; gap: 4px; margin-top: 5px; font-size: 10px; color: #b39b74; }
+.setup-warning:hover { border-color: #7a6440; }
+.setup-warning:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
 .warning-text, .success-text { display: flex; gap: 8px; align-items: flex-start; font-size: 11px; line-height: 1.6; margin: 12px 0; overflow-wrap: anywhere; }
 .warning-text { color: var(--warning); }
 .success-text { color: var(--accent-primary); }

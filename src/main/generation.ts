@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { inspectAudio } from '../shared/audio'
 import {
-  activeStatuses, buildComfyWorkflow, interpretHistory, modelProfiles,
+  activeStatuses, buildComfyWorkflow, interpretHistory, modelProfiles, outputNodeClass,
   type ComfyWorkflow, type GenerationRequest, type JobState
 } from '../shared/generation'
 import type { CloudAccess } from './cloud'
@@ -57,8 +57,10 @@ export class GenerationManager {
   async start(endpoint: string, request: GenerationRequest): Promise<JobState> {
     const profile = modelProfiles[request.profileId]
     const client = new ComfyClient(endpoint)
-    const { workflow, outputNodeId } = buildComfyWorkflow(request)
     const comfyuiVersion = await client.version()
+    // Prefer the WAV output node when ComfyUI has it: ComfyUI's own audio saving needs PyAV/FFmpeg, which some PCs lack.
+    const output = (await client.nodeInfo(outputNodeClass)) ? outputNodeClass : 'SaveAudio'
+    const { workflow, outputNodeId } = buildComfyWorkflow(request, output)
     const inspection = await client.inspectNodes(Object.values(workflow).map(node => node.class_type))
     if (inspection.missingNodes.length) {
       throw new Error(`ComfyUI is missing nodes: ${inspection.missingNodes.join(', ')}. Update ComfyUI or install the custom nodes, then check the connection again.`)

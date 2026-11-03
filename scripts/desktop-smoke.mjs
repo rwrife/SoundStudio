@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { _electron as electron } from 'playwright'
-import { createFakeComfyInstall, reachable } from './fake-comfyui-install.mjs'
+import { createFakeComfyInstall, freePort, reachable } from './fake-comfyui-install.mjs'
 import { startMockComfyUI } from './mock-comfyui.mjs'
 
 // Exercises the real Electron app. Generation runs against a mock ComfyUI that returns a synthesized test tone,
@@ -68,9 +68,24 @@ async function writeBrief(page, fields) {
   await page.getByRole('button', { name: 'Continue to generation' }).click()
 }
 
+const backendButton = page => page.locator('.backend-button')
+const check = (dialog, name) => dialog.locator('li.check').filter({ has: dialog.page().locator('strong', { hasText: name }) })
+const offline = `http://127.0.0.1:${await freePort()}`
+
 try {
   if (capture) await mkdir(screenshots, { recursive: true })
   let page = await launch()
+  // A first run checks the default address for ComfyUI. Point it at a closed port so a ComfyUI the developer
+  // happens to be running is never touched by the test.
+  await page.waitForFunction(() => localStorage.getItem('sound-studio.backend.v1') !== null)
+  await page.evaluate(endpoint => {
+    const settings = JSON.parse(localStorage.getItem('sound-studio.backend.v1'))
+    if (settings.connectOnLaunch !== true) throw new Error('A first run should check for a local ComfyUI')
+    localStorage.setItem('sound-studio.backend.v1', JSON.stringify({ ...settings, endpoint }))
+  }, offline)
+  await page.reload()
+  await page.getByRole('tab', { name: 'Effects', exact: true }).waitFor()
+  await page.getByRole('button', { name: /^Setup needs attention/ }).waitFor({ timeout: 15_000 })
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1440, 1000))
   await assertNoOverflow(page)
   assert.equal(await page.locator('.workspace-tabs svg').count(), 0, 'Workspace tabs are text-only')
@@ -86,7 +101,7 @@ try {
   assert.equal(await page.evaluate(() => typeof window.require), 'undefined')
   assert.equal(await page.evaluate(() => typeof window.soundStudio?.platform), 'string')
   assert.equal(await page.evaluate(() => typeof window.soundStudio?.startGeneration), 'function')
-  assert.equal(await page.getByRole('button', { name: 'Backend not connected' }).isVisible(), true)
+  assert.match(await page.locator('.setup-warning').innerText(), /ComfyUI is not running/)
   assert.equal(await page.getByRole('button', { name: 'Model: Local / Stable Audio Open 1.0. Needs setup. Open Model Settings' }).isVisible(), true)
   assert.match(await page.locator('.statusbar').innerText(), /No cloud\. No uploads\./)
   if (capture) await page.screenshot({ path: join(screenshots, 'effects-workspace.png'), scale: 'css', animations: 'disabled', caret: 'hide' })
@@ -142,37 +157,51 @@ try {
   assert.equal(await page.getByRole('dialog', { name: 'A small guide to the studio' }).isVisible(), true)
   await page.keyboard.press('Escape')
 
-  await page.getByRole('button', { name: /Backend not connected/ }).click()
+  await backendButton(page).click()
   const connections = page.getByRole('dialog', { name: 'Backend connections' })
-  assert.equal(await connections.getByRole('heading', { name: 'Connect your local ComfyUI' }).isVisible(), true)
+  assert.equal(await connections.getByRole('list', { name: 'Readiness checks' }).isVisible(), true)
+  assert.match(await check(connections, 'ComfyUI server').innerText(), /needs attention/)
+  assert.match(await check(connections, 'Music model').innerText(), /ACE-Step 1\.5 Turbo\. Checked once ComfyUI is running/)
+  // The fake install lives under the user's temporary folder, so its path is masked rather than published.
+  if (capture) await page.screenshot({ path: join(screenshots, 'backend-connections.png'), scale: 'css', animations: 'disabled', caret: 'hide', maskColor: '#2b3a52',
+    mask: [connections.getByLabel(/^ComfyUI folder/), check(connections, 'ComfyUI folder').locator('p')] })
   await connections.getByLabel(/ComfyUI address/).fill('http://example.com:8188')
-  await connections.getByRole('button', { name: 'Connect', exact: true }).click()
-  await connections.getByRole('alert').waitFor()
-  assert.equal(await page.getByRole('button', { name: /ComfyUI unavailable/ }).isVisible(), true)
+  await connections.getByLabel(/ComfyUI address/).press('Enter')
+  await check(connections, 'ComfyUI server').getByText(/Only ComfyUI running on this device/).waitFor()
+  assert.equal(await page.getByRole('button', { name: /^Setup needs attention/ }).isVisible(), true)
 
-  // One-click start: the detected folder is prefilled, then the canvas button launches on loopback and connects.
+  // One-click start: the detected folder is prefilled, starting installs the WAV output node, and the canvas
+  // button launches on loopback and connects.
   if (fakeComfy) {
     assert.equal(await connections.getByLabel(/^ComfyUI folder/).inputValue(), fakeComfy.folder)
     assert.equal(await connections.getByRole('button', { name: 'Start local ComfyUI' }).isDisabled(), false)
+    assert.match(await check(connections, 'Audio output node').innerText(), /Not installed yet/)
     await connections.getByLabel(/ComfyUI address/).fill(fakeComfy.endpoint)
+    await connections.getByLabel(/ComfyUI address/).press('Enter')
+    await check(connections, 'ComfyUI server').getByRole('button', { name: 'Start', exact: true }).waitFor()
     await page.keyboard.press('Escape')
     await page.getByRole('button', { name: 'Start local ComfyUI' }).click()
-    await page.getByRole('button', { name: /^ComfyUI connected/ }).waitFor({ timeout: 60_000 })
-    await page.getByRole('button', { name: /^ComfyUI connected/ }).click()
-    assert.match(await connections.innerText(), /0\.3\.0-launched[\s\S]*Started by\s*Sound Studio/)
+    await backendButton(page).click()
+    await check(connections, 'ComfyUI server').getByText(/ComfyUI 0\.3\.0-launched at .*, started by Sound Studio\./).waitFor({ timeout: 60_000 })
+    assert.match(await check(connections, 'Audio output node').innerText(), /Save Audio WAV \(Sound Studio\) is loaded/)
+    assert.match(await readFile(join(fakeComfy.folder, 'custom_nodes', 'sound_studio_nodes', '__init__.py'), 'utf8'), /^# Managed by Sound Studio/)
+    assert.match(await check(connections, 'Graphics processor').innerText(), /reports no GPU/)
     assert.deepEqual(JSON.parse(await readFile(join(fakeComfy.folder, 'launch-args.json'), 'utf8')), ['--listen', '127.0.0.1', '--port', fakeComfy.port, '--disable-auto-launch'])
     assert.match(await readFile(join(userData, 'logs', 'comfyui.log'), 'utf8'), /Sound Studio started ComfyUI[\s\S]*Fake ComfyUI listening on 127\.0\.0\.1/)
     await connections.getByRole('button', { name: 'Stop ComfyUI' }).click()
-    await page.getByRole('button', { name: /^Backend not connected/ }).waitFor()
     await connections.getByText('ComfyUI stopped.').waitFor()
+    await check(connections, 'ComfyUI server').getByText('ComfyUI is not running.').waitFor()
     assert.equal(await stopsAnswering(fakeComfy.endpoint), true, 'Stop ends the process Sound Studio started')
   } else {
     console.warn('Python was not found, so the ComfyUI launcher check was skipped.')
   }
   await connections.getByLabel(/ComfyUI address/).fill(mock.endpoint)
-  await connections.getByRole('button', { name: 'Connect', exact: true }).click()
-  await page.getByRole('button', { name: /^ComfyUI connected/ }).waitFor()
-  assert.match(await connections.innerText(), /0\.3\.0-mock[\s\S]*Mock GPU \/ 16 GB[\s\S]*Checkpoints found\s*3/)
+  await connections.getByLabel(/ComfyUI address/).press('Enter')
+  await page.getByRole('button', { name: /^Local backends ready/ }).waitFor()
+  assert.match(await check(connections, 'ComfyUI server').innerText(), /ComfyUI 0\.3\.0-mock/)
+  assert.match(await check(connections, 'Graphics processor').innerText(), /Mock GPU \/ 16 GB/)
+  assert.match(await check(connections, 'Effects model').innerText(), /stable-audio-open-1\.0\.safetensors/)
+  assert.match(await check(connections, 'Music model').innerText(), /ace_step_1\.5_turbo_aio\.safetensors/)
   await page.keyboard.press('Escape')
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(960, 700))
   await assertNoOverflow(page)
@@ -188,6 +217,7 @@ try {
   const localPrompt = lastPrompt()
   assert.equal(localPrompt.extra_data?.api_key_comfy_org, undefined, 'Local jobs never carry an API key')
   assert.equal(Object.values(localPrompt.prompt).find(node => node.class_type === 'CheckpointLoaderSimple').inputs.ckpt_name, 'stable-audio-open-1.0.safetensors')
+  assert.equal(Object.values(localPrompt.prompt).some(node => node.class_type === 'SoundStudioSaveWAV'), true, 'Jobs save through the WAV node when ComfyUI has it')
   assert.match(JSON.stringify(localPrompt.prompt), /Rain through a forest canopy/)
   await page.getByRole('img', { name: 'Waveform of Forest ambience' }).waitFor()
   assert.match(await page.locator('.canvas-toolbar').innerText(), /WAV \/ 44\.1 KHZ \/ MONO/)
@@ -307,7 +337,7 @@ try {
   await app.close()
   app = undefined
   page = await launch()
-  await page.getByRole('button', { name: /^ComfyUI connected/ }).waitFor({ timeout: 15_000 })
+  await page.getByRole('button', { name: /^Local backends ready/ }).waitFor({ timeout: 15_000 })
   assert.equal(await page.getByRole('tab', { name: 'Music', exact: true }).getAttribute('aria-selected'), 'true')
   assert.equal(await page.getByRole('button', { name: 'Model: Workflow / musicgen-small. Ready. Open Model Settings' }).isVisible(), true)
   await expectTakes(page, 2)
@@ -338,12 +368,12 @@ try {
 
   // The dialog's start button, and quitting stops only the ComfyUI that Sound Studio started.
   if (fakeComfy) {
-    await page.getByRole('button', { name: /^ComfyUI connected/ }).click()
+    await backendButton(page).click()
     const backendDialog = page.getByRole('dialog', { name: 'Backend connections' })
     await backendDialog.getByRole('button', { name: 'Disconnect' }).click()
     await backendDialog.getByLabel(/ComfyUI address/).fill(fakeComfy.endpoint)
     await backendDialog.getByRole('button', { name: 'Start local ComfyUI' }).click()
-    await page.getByRole('button', { name: /^ComfyUI connected/ }).waitFor({ timeout: 60_000 })
+    await check(backendDialog, 'ComfyUI server').getByText(/started by Sound Studio/).waitFor({ timeout: 60_000 })
     await app.close()
     app = undefined
     assert.equal(await stopsAnswering(fakeComfy.endpoint), true, 'Quitting stops the ComfyUI Sound Studio started')

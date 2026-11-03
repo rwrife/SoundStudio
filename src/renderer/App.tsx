@@ -2,7 +2,7 @@ import { Fragment, useEffect, useRef, useState, type KeyboardEvent } from 'react
 import {
   AlertTriangle, ArrowDownToLine, ArrowRight, AudioLines, Check, ChevronRight, CircleHelp,
   Clock3, Cloud, FolderOpen, Headphones, Info, Layers3, Library, ListMusic, LoaderCircle,
-  Music2, Play, Radio, RefreshCw, Settings2, ShieldCheck, SlidersHorizontal,
+  Music2, Play, Radio, Settings2, ShieldCheck, SlidersHorizontal,
   Sparkles, Square, Trash2, WandSparkles, Waves, Zap
 } from 'lucide-react'
 import { version } from '../../package.json'
@@ -13,6 +13,8 @@ import {
 } from '../shared/generation'
 import { effectCategories, examples, musicGenres, musicKeys, musicMoods, steps, type Draft, type Step, type Workspace } from '../shared/workspace'
 import { Dialog } from './Dialog'
+import { BackendConnections } from './BackendConnections'
+import { backendChecks, backendSummary } from '../shared/backendChecks'
 import { executionBadge, ModelSettings } from './ModelSettings'
 import { TakePlayer } from './TakePlayer'
 import { useBackend } from './useBackend'
@@ -32,7 +34,6 @@ export function App() {
   const [feedback, setFeedback] = useState<Feedback>(null)
   const [selectedTakes, setSelectedTakes] = useState<Record<Workspace, string | null>>({ effects: null, music: null })
   const [starting, setStarting] = useState(false)
-  const [endpointInput, setEndpointInput] = useState(backend.settings.endpoint)
   const seenCompleted = useRef(new Set<string>())
   const mainRef = useRef<HTMLElement>(null)
   const { workspace } = state
@@ -123,12 +124,11 @@ export function App() {
     setSurface(null)
   }
 
-  const backendLabel = !backend.available ? 'Desktop app required' : backend.launcher?.phase === 'starting' ? 'Starting ComfyUI...' : {
-    disconnected: 'Backend not connected', checking: 'Checking ComfyUI...', connected: 'ComfyUI connected', error: 'ComfyUI unavailable'
-  }[backend.connection.state]
   const launcher = backend.launcher
   const comfyStarting = launcher?.phase === 'starting'
-  const comfyManaged = comfyStarting || launcher?.phase === 'running'
+  const checks = backendChecks({ connection: backend.connection, launcher, models: backend.settings.models, readiness: backend.readiness })
+  const summary = backendSummary(checks, launcher?.phase)
+  const backendLabel = backend.available ? summary.label : 'Desktop app required'
   const modelSummary = `${profile.execution === 'local' ? 'Local' : profile.execution === 'cloud' ? 'Cloud' : readiness.remote ? 'Cloud workflow' : 'Workflow'} / ${choice.workflow && profile.execution === 'workflow' ? choice.workflow.name : profile.label}`
   const generateReason = !backend.available ? 'Generation needs the desktop app.'
     : !connected ? 'Connect to ComfyUI to generate.'
@@ -169,8 +169,8 @@ export function App() {
       </nav>
       <div className="topbar-actions">
         <button className="subtle-button" onClick={openModels} aria-haspopup="dialog"><SlidersHorizontal size={15} /> Model Settings</button>
-        <button className="backend-button" onClick={() => { setEndpointInput(backend.settings.endpoint); setSurface('connections') }} aria-haspopup="dialog">
-          <span className={`status-dot ${connected ? 'blue' : comfyStarting ? 'starting' : backend.connection.state === 'error' ? 'warn' : ''}`} /> {backendLabel} <ChevronRight size={13} /></button>
+        <button className={`backend-button ${summary.tone === 'warning' && backend.available ? 'warning' : ''}`} onClick={() => setSurface('connections')} aria-haspopup="dialog">
+          <span className={`status-dot ${!backend.available ? '' : summary.tone === 'ready' ? 'blue' : summary.tone === 'pending' ? 'starting' : 'warn'}`} /> {backendLabel} <ChevronRight size={13} /></button>
         <button className="icon-button" aria-label="Quick guide" onClick={() => setSurface('help')} aria-haspopup="dialog"><CircleHelp size={18} /></button>
       </div>
     </header>
@@ -253,6 +253,9 @@ export function App() {
               {workspaceFeedback.error ? <AlertTriangle size={14} /> : <Check size={14} />} {workspaceFeedback.text}</p>}
 
             <div className="action-area">
+              {backend.available && summary.tone === 'warning' && (draft.step === 'brief' || draft.step === 'generate') && <button className="setup-warning" onClick={() => setSurface('connections')} aria-haspopup="dialog">
+                <AlertTriangle size={15} /><span>{connected ? `${checks.filter(check => check.status === 'blocked').length} backend check${checks.filter(check => check.status === 'blocked').length === 1 ? '' : 's'} need attention` : 'ComfyUI is not running'}
+                  <small>{connected ? 'Review setup before generation' : 'Start it with one click'} <ArrowRight size={11} /></small></span></button>}
               <button className={`model-summary ${readiness.remote ? 'remote' : ''}`} onClick={openModels} aria-haspopup="dialog" aria-label={`Model: ${modelSummary}. ${readiness.ready ? 'Ready' : 'Needs setup'}. Open Model Settings`}>
                 <span><span className={`status-dot ${readiness.ready ? 'blue' : 'warn'}`} />{readiness.remote && <Cloud size={12} />} {modelSummary}</span><Settings2 size={14} /></button>
               {draft.step === 'brief' ? <button className="primary full" onClick={() => selectStep('generate')}>Continue to generation <ArrowRight size={16} /></button>
@@ -294,7 +297,7 @@ export function App() {
                 <p>{isMusic ? 'Set a mood, sketch a melody, imagine the atmosphere.' : 'A forest at dawn. A distant galaxy. The perfect little click.'}<br />Your next {isMusic ? 'track' : 'sound'} starts with a few words.</p>
                 <span className="placeholder-note"><Info size={13} /> {activeJob ? activeJob.message : !backend.available ? 'Generation and playback need the desktop app.' : connected ? 'No takes yet. Generated audio will play here.' : 'Connect your local ComfyUI to generate audio.'}</span>
                 {backend.available && !connected && !activeJob && (launcher?.layout
-                  ? <button className="primary start-comfy" disabled={comfyStarting || backend.connection.state === 'checking'} onClick={() => void backend.startComfy(endpointInput)}>
+                  ? <button className="primary start-comfy" disabled={comfyStarting || backend.connection.state === 'checking'} onClick={() => void backend.startComfy(backend.settings.endpoint)}>
                     {comfyStarting ? <LoaderCircle className="spin" size={15} /> : <Zap size={15} />}{comfyStarting ? 'Starting ComfyUI...' : 'Start local ComfyUI'}</button>
                   : <button className="subtle-button" onClick={() => setSurface('connections')}><Radio size={14} /> Set up ComfyUI</button>)}
               </div>
@@ -345,48 +348,7 @@ export function App() {
     </Dialog>}
 
     {surface === 'connections' && <Dialog title="Backend connections" eyebrow="LOCAL INFRASTRUCTURE" onClose={() => setSurface(null)}>
-      {!backend.available ? <>
-        <div className="connection-state"><span className="connection-icon"><Radio size={25} /></span><div><h3>Desktop app required</h3><p>This browser preview cannot reach ComfyUI. Run the desktop app to generate audio.</p></div></div>
-      </> : <>
-        <div className="connection-state"><span className="connection-icon"><Radio size={25} /></span><div>
-          <h3>{connected ? 'ComfyUI connected' : comfyStarting ? 'Starting ComfyUI...' : backend.connection.state === 'checking' ? 'Checking ComfyUI...' : 'Connect your local ComfyUI'}</h3>
-          <p>Sound Studio sends workflows to ComfyUI on this device. Start it from here, or start it yourself and connect.</p></div></div>
-        <form className="endpoint-form" onSubmit={event => { event.preventDefault(); void backend.connect(endpointInput) }}>
-          <label className="field-label" htmlFor="endpoint">ComfyUI address <span>this device only</span></label>
-          <div className="inline-field"><input id="endpoint" value={endpointInput} spellCheck={false} disabled={comfyManaged} onChange={event => setEndpointInput(event.target.value)} />
-            <button className="subtle-button" type="submit" disabled={backend.connection.state === 'checking' || comfyStarting}>{connected ? <><RefreshCw size={14} /> Recheck</> : 'Connect'}</button></div>
-        </form>
-        {!connected && <>
-          <label className="field-label" htmlFor="comfy-folder">ComfyUI folder <span>{launcher?.layout ? 'found' : 'not found'}</span></label>
-          <div className="inline-field"><input id="comfy-folder" readOnly value={launcher?.folder ?? ''} placeholder="Choose the folder that contains ComfyUI" spellCheck={false} />
-            <button className="subtle-button icon-only" aria-label="Browse for ComfyUI folder" title="Browse for ComfyUI folder" disabled={!launcher || comfyManaged} onClick={() => void backend.chooseComfyFolder()}><FolderOpen size={16} /></button></div>
-          {launcher?.installError && <p className="warning-text"><AlertTriangle size={14} /> {launcher.installError}</p>}
-        </>}
-        {backend.connection.state === 'error' && !comfyStarting && <p className="warning-text" role="alert"><AlertTriangle size={14} /> {backend.connection.error}</p>}
-        {connected && backend.status && <>
-          <div className="connection-row"><span>ComfyUI version</span><span className="blue-text">{backend.status.comfyuiVersion ?? 'Unknown'}</span></div>
-          {backend.status.devices.map(device => <div className="connection-row" key={device.name}><span>Device</span><span>{device.name}{device.vramTotal ? ` / ${Math.round(device.vramTotal / 1024 ** 3 * 10) / 10} GB` : ''}</span></div>)}
-          <div className="connection-row"><span>Checkpoints found</span><span>{backend.status.checkpoints.length}</span></div>
-          {launcher?.phase === 'running' && <div className="connection-row"><span>Started by</span><span>Sound Studio</span></div>}
-        </>}
-        <div className="launcher-actions">
-          {launcher?.phase === 'running'
-            ? <button className="subtle-button" onClick={() => void backend.stopComfy()}><Square size={12} /> Stop ComfyUI</button>
-            : connected
-              ? <button className="subtle-button" onClick={backend.disconnect}>Disconnect</button>
-              : <button className="primary start-comfy" disabled={!launcher?.layout || comfyStarting || backend.connection.state === 'checking'} onClick={() => void backend.startComfy(endpointInput)}>
-                {comfyStarting ? <LoaderCircle className="spin" size={15} /> : <Zap size={15} />}{comfyStarting ? 'Starting ComfyUI...' : 'Start local ComfyUI'}</button>}
-          {comfyStarting && <button className="text-button" onClick={() => void backend.stopComfy()}>Cancel</button>}
-          {launcher?.hasLog && launcher.phase === 'exited' && <button className="text-button" onClick={() => void backend.showComfyLog()}>Show log</button>}
-        </div>
-        {backend.launcherError
-          ? <p className="warning-text" role="alert"><AlertTriangle size={14} /> {backend.launcherError}</p>
-          : launcher?.message && launcher.phase !== 'running' && <p className={launcher.phase === 'exited' ? 'warning-text' : 'field-hint'} role="status">
-            {launcher.phase === 'exited' && <AlertTriangle size={14} />} {launcher.message}</p>}
-        {!connected && <p className="fine-print">Runs that ComfyUI on this device only. Quitting Sound Studio stops it. A ComfyUI you started yourself is never stopped.</p>}        <div className="connection-row"><span>Prompt drafts</span><span className="blue-text">{storageError ? 'In memory only' : 'Saved locally'}</span></div>
-        <div className="connection-row"><span>Takes</span><span>Saved locally ({backend.takes.length})</span></div>
-        <div className="connection-row"><span>Cloud partner models</span><span className={backend.cloud?.enabled ? 'warning-inline' : ''}>{backend.cloud?.enabled ? 'Enabled' : 'Off'}</span></div>
-      </>}
+      <BackendConnections backend={backend} checks={checks} storageError={storageError} onModels={next => { setModelWorkspace(next); setSurface('models') }} />
     </Dialog>}
 
     {surface === 'library' && <Dialog title="Sound library" eyebrow="YOUR COLLECTION" drawer onClose={() => setSurface(null)}>

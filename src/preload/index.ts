@@ -12,6 +12,7 @@ const bridge: SoundStudioBridge = {
   chooseComfyFolder: () => invoke(channels.launcherFolder),
   startComfy: endpoint => invoke(channels.launcherStart, endpoint),
   stopComfy: () => invoke(channels.launcherStop),
+  installOutputNode: () => invoke(channels.launcherNode),
   showComfyLog: () => invoke(channels.launcherLog),
   onLauncherUpdate: listener => {
     const handler = (_event: Electron.IpcRendererEvent, status: LauncherStatus) => listener(status)

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   assessHardware, assessReadiness, buildComfyWorkflow, buildGenerationRequest, createDefaultBackendSettings, estimateCostUsd,
-  formatPromptError, importCustomWorkflow, interpretHistory, modelProfiles, normalizeEndpoint, parseBackendSettings,
+  formatPromptError, importCustomWorkflow, interpretHistory, modelProfiles, normalizeEndpoint, outputNodeClass, parseBackendSettings,
   parseTakeRecord, profilesFor, validateCloudConfiguration, validateCustomWorkflow, validateGenerationRequest,
   type BackendStatus, type CloudStatus, type ModelChoice
 } from '../src/shared/generation'
@@ -66,6 +66,17 @@ test('local profiles build ComfyUI API graphs from the draft', () => {
   assert.equal(ace.workflow[6].inputs.steps, 8)
   assert.deepEqual(ace.workflow[7].inputs.vae, ['1', 2])
   assert.equal(buildComfyWorkflow(request('music', 'ace-step-1.5-turbo')).workflow[3].inputs.lyrics, '[Instrumental]')
+})
+
+test('the Sound Studio WAV node replaces Save Audio when ComfyUI has it', () => {
+  const ace = buildComfyWorkflow(request('music', 'ace-step-1.5-turbo'), outputNodeClass)
+  assert.deepEqual(ace.workflow[ace.outputNodeId], { class_type: outputNodeClass, inputs: { audio: ['7', 0], filename_prefix: 'sound-studio/music' } })
+  const workflow = validateCustomWorkflow({ name: 'MusicGen', graph: { ...apiWorkflow, 2: { class_type: 'SaveAudio', inputs: { audio: ['1', 0], filename_prefix: 'x', format: 'flac' } } } })
+  const custom = buildComfyWorkflow(request('music', 'custom-workflow', {}, { workflow }), outputNodeClass)
+  assert.deepEqual(custom.workflow[2], { class_type: outputNodeClass, inputs: { audio: ['1', 0], filename_prefix: 'sound-studio/music' } }, 'Save Audio-only inputs are dropped')
+  assert.equal(validateCustomWorkflow({ name: 'WAV', graph: { ...apiWorkflow, 2: { class_type: outputNodeClass, inputs: { audio: ['1', 0] } } } }).outputNodeId, '2')
+  const withoutSaveAudio = status({ availableNodes: status().availableNodes.filter(node => node !== 'SaveAudio').concat(outputNodeClass) })
+  assert.equal(assessReadiness(choice('ace-step-1.5-turbo'), withoutSaveAudio, cloudOff).ready, true, 'the WAV node satisfies the Save Audio requirement')
 })
 
 test('cloud partner graphs use the documented node inputs', () => {
@@ -168,7 +179,7 @@ test('requests are validated against model limits in the renderer and again at t
 
 test('backend settings and cloud configuration are validated', () => {
   const settings = createDefaultBackendSettings()
-  assert.equal(settings.connectOnLaunch, false)
+  assert.equal(settings.connectOnLaunch, true, 'checks the loopback ComfyUI on first launch')
   settings.models.music = choice('custom-workflow', { workflow: validateCustomWorkflow({ name: 'DiffRhythm 2', graph: apiWorkflow }) })
   assert.deepEqual(parseBackendSettings(JSON.stringify(settings)), settings)
   assert.throws(() => parseBackendSettings('{"version":2}'))
@@ -191,6 +202,8 @@ test('ComfyUI history and errors are interpreted without inventing output', () =
   const error = interpretHistory({ status: { status_str: 'error', messages: [['execution_error', { node_type: 'KSampler', exception_message: 'CUDA out of memory' }]] } }, '9')
   assert.deepEqual(error, { kind: 'error', message: 'ComfyUI could not generate this take. KSampler: CUDA out of memory' })
   assert.deepEqual(interpretHistory({ status: { messages: [['execution_interrupted', {}]] } }, '9'), { kind: 'interrupted' })
+  const encoding = interpretHistory({ status: { status_str: 'error', messages: [['execution_error', { node_type: 'SaveAudio', exception_message: "'_Module' object is not callable" }]] } }, '9')
+  assert.match(encoding.kind === 'error' ? encoding.message : '', /PyAV\/FFmpeg is missing or blocked.*audio output node/)
   for (const audio of [{ filename: '../x.flac', subfolder: '', type: 'output' }, { filename: 'x.flac', subfolder: 'C:/x', type: 'output' }, { filename: 'x.flac', subfolder: '', type: 'temp' }]) {
     assert.equal(interpretHistory({ outputs: { 9: { audio: [audio] } } }, '9').kind, 'error', JSON.stringify(audio))
   }
