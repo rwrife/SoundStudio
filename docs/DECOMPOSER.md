@@ -62,6 +62,15 @@ Model Settings reports import/file readiness, the managed Python version and phy
 
 The Qwen profile is implemented but real caption inference has **not been validated on the development machine**: it has 32 GiB physical RAM and insufficient free memory. Do not interpret profile presence or a successful missing-model test as proof that caption inference ran.
 
+### Bounded alternative-caption checks
+
+These are feasibility checks, **not installed application profiles or successful caption runs**:
+
+- **CoNeTTE:** stopped before checkpoint acquisition/inference. The upstream loader can invoke unrestricted `pickle.loads` on tokenizer extra state, its dependency pins conflict with the managed runtime, and default initialization has additional downloads. No loader safeguards were weakened. This is not a claim that the checkpoint is malicious.
+- **Native Qwen2.5-Omni-7B Q4_K_M:** the official llama.cpp **b12064 ARM64 CPU** executable ran and exposed local audio input and `--offline`. Its archive and the two GGUF files (6,231,560,864 bytes combined) passed their pinned SHA-256 checks. A real 20-30 second excerpt of the attributed recording below decoded to 160,000 mono 16 kHz samples. The probe then stopped **before model inference**: 10,382,430,208 bytes (9.67 GiB) available RAM was below its conservative 10 GiB start budget. The planned limits were five minutes, an 8 GiB process-memory stop and a 2 GiB available-system-memory floor. There is no generated caption, inference timing, measured inference peak or successful offline-inference result. This preflight budget is not a measured model minimum.
+
+The native check pinned [llama.cpp commit `51fe42c5d14bfb9adf0612ff98a9ab79e0e7275c`](https://github.com/ggml-org/llama.cpp/tree/51fe42c5d14bfb9adf0612ff98a9ab79e0e7275c) and [GGUF revision `89b785438c8901d4635e42f50480ba5985a1bbf1`](https://huggingface.co/ggml-org/Qwen2.5-Omni-7B-GGUF/tree/89b785438c8901d4635e42f50480ba5985a1bbf1). The [pinned upstream 7B LICENSE](https://huggingface.co/Qwen/Qwen2.5-Omni-7B/blob/ae9e1690543ffd5c0221dc27f79834d0294cba00/LICENSE) contains Apache-2.0 terms; the GGUF card still labels its metadata `qwen-research` while linking to the upstream LICENSE. Both notices were retained with the local probe evidence. No alternative profile was exposed, existing selections were not changed, and the original Qwen2-Audio memory guard remains intact.
+
 ## Library, source integrity and recovery
 
 Decomposer's **Analysis library** reopens imported sources and completed/failed jobs across restarts. It is not a general searchable asset manager. Originals, normalized playback WAVs, manifests, raw results, corrections and outputs live under the Electron user-data directory in `decomposer`. Runtime and models live separately in `decomposer-runtime`.
