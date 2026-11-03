@@ -366,6 +366,13 @@ function pick(selected: string, available: string[], pattern: RegExp) {
   return available.find(name => pattern.test(name)) ?? null
 }
 
+// A selected file that doesn't look like the profile's model is allowed (it may be renamed), unless a matching file exists.
+function mismatch(selected: string | null, available: string[], pattern: RegExp, kind: string, label: string) {
+  if (!selected || pattern.test(selected)) return null
+  const match = available.find(name => pattern.test(name))
+  return match ? `"${selected}" does not look like the ${label} ${kind}. Choose Automatic (${match}) in Model Settings.` : null
+}
+
 export function assessReadiness(choice: ModelChoice, status: BackendStatus | null, cloud: CloudStatus | null, inspection: WorkflowInspection | null = null): Readiness {
   const profile = modelProfiles[choice.profileId]
   const remote = profile.execution === 'cloud' || (profile.execution === 'workflow' && !!inspection?.apiNodes.length)
@@ -389,12 +396,16 @@ export function assessReadiness(choice: ModelChoice, status: BackendStatus | nul
     checkpoint = pick(choice.checkpoint, status.checkpoints, profile.checkpoint.pattern)
     if (!checkpoint) issues.push(`No ${profile.label} checkpoint found in ComfyUI/models/checkpoints.`)
     else if (choice.checkpoint && choice.checkpoint !== checkpoint) issues.push(`The selected checkpoint "${choice.checkpoint}" is no longer available.`)
+    const wrong = mismatch(checkpoint, status.checkpoints, profile.checkpoint.pattern, 'checkpoint', profile.label)
+    if (wrong) issues.push(wrong)
   }
   let textEncoder: string | null = null
   if (profile.textEncoder) {
     textEncoder = pick(choice.textEncoder, status.textEncoders, profile.textEncoder.pattern)
     if (!textEncoder) issues.push('No T5-base text encoder found in ComfyUI/models/text_encoders.')
     else if (choice.textEncoder && choice.textEncoder !== textEncoder) issues.push(`The selected text encoder "${choice.textEncoder}" is no longer available.`)
+    const wrong = mismatch(textEncoder, status.textEncoders, profile.textEncoder.pattern, 'text encoder', profile.label)
+    if (wrong) issues.push(wrong)
     if (status.availableNodes.includes('CLIPLoader') && !status.clipTypes.includes(profile.textEncoder.clipType)) {
       issues.push(`This ComfyUI version's CLIPLoader does not support "${profile.textEncoder.clipType}". Update ComfyUI.`)
     }

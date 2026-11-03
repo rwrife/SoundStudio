@@ -128,6 +128,7 @@ export function App() {
   const comfyStarting = launcher?.phase === 'starting'
   const checks = backendChecks({ connection: backend.connection, launcher, models: backend.settings.models, readiness: backend.readiness })
   const summary = backendSummary(checks, launcher?.phase)
+  const blockingHere = checks.filter(check => check.status === 'blocked' && check.id !== (workspace === 'music' ? 'effects' : 'music'))
   const backendLabel = backend.available ? summary.label : 'Desktop app required'
   const modelSummary = `${profile.execution === 'local' ? 'Local' : profile.execution === 'cloud' ? 'Cloud' : readiness.remote ? 'Cloud workflow' : 'Workflow'} / ${choice.workflow && profile.execution === 'workflow' ? choice.workflow.name : profile.label}`
   const generateReason = !backend.available ? 'Generation needs the desktop app.'
@@ -237,7 +238,7 @@ export function App() {
               </div>
               <button className="text-button" onClick={() => selectStep('brief')}>Edit your brief <ArrowRight size={14} /></button>
               {(!readiness.ready || !plan.request) && <ul className="issue-list" aria-label="Before you generate">
-                {[...readiness.issues, ...(plan.request ? [] : plan.problems)].map(issue => <li key={issue}><AlertTriangle size={13} /> {issue}</li>)}
+                {[...readiness.issues, ...(plan.request ? [] : plan.problems.filter(problem => readiness.ready || !problem.startsWith('Select an installed')))].map(issue => <li key={issue}><AlertTriangle size={13} /> {issue}</li>)}
               </ul>}
               {latestJob && <JobCard job={latestJob} onCancel={() => void backend.cancel(latestJob.id).catch(error => setFeedback({ workspace, error: true, text: String(error instanceof Error ? error.message : error) }))}
                 onReview={() => selectStep('review')} />}
@@ -253,8 +254,8 @@ export function App() {
               {workspaceFeedback.error ? <AlertTriangle size={14} /> : <Check size={14} />} {workspaceFeedback.text}</p>}
 
             <div className="action-area">
-              {backend.available && summary.tone === 'warning' && (draft.step === 'brief' || draft.step === 'generate') && <button className="setup-warning" onClick={() => setSurface('connections')} aria-haspopup="dialog">
-                <AlertTriangle size={15} /><span>{connected ? `${checks.filter(check => check.status === 'blocked').length} backend check${checks.filter(check => check.status === 'blocked').length === 1 ? '' : 's'} need attention` : 'ComfyUI is not running'}
+              {backend.available && summary.tone === 'warning' && (!connected || blockingHere.length > 0) && (draft.step === 'brief' || draft.step === 'generate') && <button className="setup-warning" onClick={() => setSurface('connections')} aria-haspopup="dialog">
+                <AlertTriangle size={15} /><span>{connected ? `${blockingHere.length} backend check${blockingHere.length === 1 ? ' needs' : 's need'} attention` : 'ComfyUI is not running'}
                   <small>{connected ? 'Review setup before generation' : 'Start it with one click'} <ArrowRight size={11} /></small></span></button>}
               <button className={`model-summary ${readiness.remote ? 'remote' : ''}`} onClick={openModels} aria-haspopup="dialog" aria-label={`Model: ${modelSummary}. ${readiness.ready ? 'Ready' : 'Needs setup'}. Open Model Settings`}>
                 <span><span className={`status-dot ${readiness.ready ? 'blue' : 'warn'}`} />{readiness.remote && <Cloud size={12} />} {modelSummary}</span><Settings2 size={14} /></button>

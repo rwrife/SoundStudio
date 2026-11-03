@@ -125,6 +125,12 @@ test('readiness reports missing models, nodes and cloud opt-in honestly', () => 
   assert.match(missing.issues.join('\n'), /No Stable Audio Open 1.0 checkpoint/)
   assert.match(missing.issues.join('\n'), /No T5-base text encoder/)
 
+  const unrelated = assessReadiness(choice('ace-step-1.5-turbo', { checkpoint: 'hunyuan3d-dit-v2_fp16.safetensors' }),
+    status({ checkpoints: ['ace_step_1.5_turbo_aio.safetensors', 'hunyuan3d-dit-v2_fp16.safetensors'] }), cloudOff)
+  assert.equal(unrelated.ready, false, 'an unrelated checkpoint is not reported as ready when a matching one is installed')
+  assert.match(unrelated.issues.join(), /does not look like the ACE-Step 1.5 Turbo checkpoint. Choose Automatic \(ace_step_1.5_turbo_aio.safetensors\)/)
+  const renamed = assessReadiness(choice('ace-step-1.5-turbo', { checkpoint: 'my-music.safetensors' }), status({ checkpoints: ['my-music.safetensors'] }), cloudOff)
+  assert.equal(renamed.ready, true, 'a renamed file is accepted when nothing better matches')
   const mireloOff = assessReadiness(choice('mirelo-sfx-2.0'), status(), cloudOff)
   assert.equal(mireloOff.remote, true)
   assert.equal(mireloOff.ready, false)

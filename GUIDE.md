@@ -95,7 +95,7 @@ These open-weight models run through ComfyUI's built-in nodes. Download them fro
 | ACE-Step 1.5 Turbo | Music | `models/checkpoints/ace_step_1.5_turbo_aio.safetensors` from [Comfy-Org/ACE-Step-1.5](https://huggingface.co/Comfy-Org/ACE-Step-1.5) (about 10 GB) | 10-600 s, lyrics, tempo and key. Apache-2.0 as published by Comfy-Org. About 12 GB VRAM suggested. |
 | ACE-Step v1 3.5B | Music | `models/checkpoints/ace_step_v1_3.5b.safetensors` | 5-240 s, lyrics. Apache-2.0. About 10 GB VRAM suggested. |
 
-Sound Studio picks a matching checkpoint automatically, or you can choose a specific file. Hardware fit compares the suggested VRAM with what ComfyUI reports. It is guidance, not a measurement of real performance.
+Sound Studio picks a matching checkpoint automatically, or you can choose a specific file. The file list puts the files that match the model first. If a saved choice doesn't look like the selected model but a matching file is installed, the model shows **NEEDS SETUP** and offers **Use *matching file* instead**, which switches back to Automatic in one click. The Generate panel only flags backend checks for the workspace you are in. Hardware fit compares the suggested VRAM with what ComfyUI reports. It is guidance, not a measurement of real performance.
 
 ### Cloud partner models (opt-in)
 
@@ -235,6 +235,7 @@ This runs the same checks and writes `effects-workspace.png`, `model-settings.pn
 | "...was not created by Sound Studio" | A different file sits at `custom_nodes\sound_studio_nodes\__init__.py`. Move it away if you do not need it, then choose **Install** again. |
 | "Only ComfyUI running on this device..." | Remote servers are not supported. Run ComfyUI locally on loopback. |
 | A model shows **NEEDS SETUP** | Follow the listed issues. Missing nodes need a newer ComfyUI or custom nodes. Missing files need to go in the named `models` folder; then restart ComfyUI and choose **Refresh**. |
+| "...does not look like the *model* checkpoint" | A file for a different model is selected. In Model Settings, choose **Use *matching file* instead** or pick **Automatic**. |
 | Cloud models stay disabled | Store a Comfy.org API key first, then tick **Allow cloud partner models**. If encryption is unavailable, the key cannot be stored. |
 | ComfyUI rejects the workflow | The message lists failing nodes and inputs. Check model files and custom nodes in ComfyUI itself. |
 | A job fails with an out-of-memory error | Choose a shorter duration or a smaller model, or close other GPU applications. |

@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { AlertTriangle, AudioLines, Check, Cloud, Cpu, FileJson, KeyRound, Music2, ShieldCheck, Trash2, Upload } from 'lucide-react'
+import { AlertTriangle, ArrowRight, AudioLines, Check, Cloud, Cpu, FileJson, KeyRound, Music2, ShieldCheck, Trash2, Upload } from 'lucide-react'
 import {
   assessHardware, estimateCostUsd, importCustomWorkflow, modelProfiles, placeholders, profilesFor,
   type Execution, type ModelProfile
@@ -64,10 +64,10 @@ export function ModelSettings({ backend, workspace, onWorkspace }: { backend: Ba
     {(profile.checkpoint || profile.textEncoder) && <div className="settings-block">
       <h3><Cpu size={15} /> Installed files</h3>
       {profile.checkpoint && <ModelFileSelect id={`${workspace}-checkpoint`} label="Checkpoint" suggested={profile.checkpoint.suggested}
-        files={status?.checkpoints ?? []} selected={choice.checkpoint} detected={readiness.checkpoint}
+        files={status?.checkpoints ?? []} pattern={profile.checkpoint.pattern} modelLabel={profile.label} selected={choice.checkpoint}
         onChange={checkpoint => backend.chooseModel(workspace, { checkpoint })} disabled={!status} />}
       {profile.textEncoder && <ModelFileSelect id={`${workspace}-encoder`} label="Text encoder" suggested={profile.textEncoder.suggested}
-        files={status?.textEncoders ?? []} selected={choice.textEncoder} detected={readiness.textEncoder}
+        files={status?.textEncoders ?? []} pattern={profile.textEncoder.pattern} modelLabel={profile.label} selected={choice.textEncoder}
         onChange={textEncoder => backend.chooseModel(workspace, { textEncoder })} disabled={!status} />}
     </div>}
 
@@ -82,15 +82,21 @@ export function ModelSettings({ backend, workspace, onWorkspace }: { backend: Ba
   </>
 }
 
-function ModelFileSelect({ id, label, suggested, files, selected, detected, onChange, disabled }: {
-  id: string; label: string; suggested: string; files: string[]; selected: string; detected: string | null; onChange: (value: string) => void; disabled: boolean
+function ModelFileSelect({ id, label, suggested, files, pattern, modelLabel, selected, onChange, disabled }: {
+  id: string; label: string; suggested: string; files: string[]; pattern: RegExp; modelLabel: string; selected: string; onChange: (value: string) => void; disabled: boolean
 }) {
+  const matching = files.filter(file => pattern.test(file))
+  const other = files.filter(file => !pattern.test(file))
+  const automatic = matching[0] ?? null
   return <>
     <label className="field-label" htmlFor={id}>{label} <span>suggested {suggested}</span></label>
     <select id={id} value={selected} disabled={disabled} onChange={event => onChange(event.target.value)}>
-      <option value="">{detected ? `Automatic (${detected})` : disabled ? 'Connect to ComfyUI to list files' : 'Automatic (none found)'}</option>
-      {files.map(file => <option key={file} value={file}>{file}</option>)}
+      <option value="">{automatic ? `Automatic (${automatic})` : disabled ? 'Connect to ComfyUI to list files' : 'Automatic (none found)'}</option>
+      {!!matching.length && <optgroup label={`${modelLabel} files`}>{matching.map(file => <option key={file} value={file}>{file}</option>)}</optgroup>}
+      {!!other.length && <optgroup label="Other files">{other.map(file => <option key={file} value={file}>{file}</option>)}</optgroup>}
     </select>
+    {!disabled && automatic && selected && !pattern.test(selected) &&
+      <button type="button" className="text-button" onClick={() => onChange('')}>Use {automatic} instead <ArrowRight size={14} /></button>}
   </>
 }
 
