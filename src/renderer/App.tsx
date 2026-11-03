@@ -12,7 +12,6 @@ import {
   type JobState, type TakeRecord
 } from '../shared/generation'
 import { effectCategories, examples, musicGenres, musicKeys, musicMoods, steps, type Draft, type Step, type Workspace } from '../shared/workspace'
-import { layoutLabels } from '../shared/launcher'
 import { Dialog } from './Dialog'
 import { executionBadge, ModelSettings } from './ModelSettings'
 import { TakePlayer } from './TakePlayer'
@@ -294,6 +293,10 @@ export function App() {
                 <h3>{isMusic ? 'Every world deserves a soundtrack.' : 'Make something worth hearing.'}</h3>
                 <p>{isMusic ? 'Set a mood, sketch a melody, imagine the atmosphere.' : 'A forest at dawn. A distant galaxy. The perfect little click.'}<br />Your next {isMusic ? 'track' : 'sound'} starts with a few words.</p>
                 <span className="placeholder-note"><Info size={13} /> {activeJob ? activeJob.message : !backend.available ? 'Generation and playback need the desktop app.' : connected ? 'No takes yet. Generated audio will play here.' : 'Connect your local ComfyUI to generate audio.'}</span>
+                {backend.available && !connected && !activeJob && (launcher?.layout
+                  ? <button className="primary start-comfy" disabled={comfyStarting || backend.connection.state === 'checking'} onClick={() => void backend.startComfy(endpointInput)}>
+                    {comfyStarting ? <LoaderCircle className="spin" size={15} /> : <Zap size={15} />}{comfyStarting ? 'Starting ComfyUI...' : 'Start local ComfyUI'}</button>
+                  : <button className="subtle-button" onClick={() => setSurface('connections')}><Radio size={14} /> Set up ComfyUI</button>)}
               </div>
               <div className="transport"><div className="transport-controls">
                 <button className="play-button" disabled aria-label="Play audio"><Play size={16} fill="currentColor" /></button>
@@ -350,42 +353,37 @@ export function App() {
           <p>Sound Studio sends workflows to ComfyUI on this device. Start it from here, or start it yourself and connect.</p></div></div>
         <form className="endpoint-form" onSubmit={event => { event.preventDefault(); void backend.connect(endpointInput) }}>
           <label className="field-label" htmlFor="endpoint">ComfyUI address <span>this device only</span></label>
-          <div className="inline-field"><input id="endpoint" value={endpointInput} spellCheck={false} onChange={event => setEndpointInput(event.target.value)} />
-            <button className="primary" type="submit" disabled={backend.connection.state === 'checking'}>{connected ? <><RefreshCw size={14} /> Recheck</> : 'Connect'}</button></div>
+          <div className="inline-field"><input id="endpoint" value={endpointInput} spellCheck={false} disabled={comfyManaged} onChange={event => setEndpointInput(event.target.value)} />
+            <button className="subtle-button" type="submit" disabled={backend.connection.state === 'checking' || comfyStarting}>{connected ? <><RefreshCw size={14} /> Recheck</> : 'Connect'}</button></div>
         </form>
-        {backend.connection.state === 'error' && <p className="warning-text" role="alert"><AlertTriangle size={14} /> {backend.connection.error}</p>}
+        {!connected && <>
+          <label className="field-label" htmlFor="comfy-folder">ComfyUI folder <span>{launcher?.layout ? 'found' : 'not found'}</span></label>
+          <div className="inline-field"><input id="comfy-folder" readOnly value={launcher?.folder ?? ''} placeholder="Choose the folder that contains ComfyUI" spellCheck={false} />
+            <button className="subtle-button icon-only" aria-label="Browse for ComfyUI folder" title="Browse for ComfyUI folder" disabled={!launcher || comfyManaged} onClick={() => void backend.chooseComfyFolder()}><FolderOpen size={16} /></button></div>
+          {launcher?.installError && <p className="warning-text"><AlertTriangle size={14} /> {launcher.installError}</p>}
+        </>}
+        {backend.connection.state === 'error' && !comfyStarting && <p className="warning-text" role="alert"><AlertTriangle size={14} /> {backend.connection.error}</p>}
         {connected && backend.status && <>
           <div className="connection-row"><span>ComfyUI version</span><span className="blue-text">{backend.status.comfyuiVersion ?? 'Unknown'}</span></div>
           {backend.status.devices.map(device => <div className="connection-row" key={device.name}><span>Device</span><span>{device.name}{device.vramTotal ? ` / ${Math.round(device.vramTotal / 1024 ** 3 * 10) / 10} GB` : ''}</span></div>)}
           <div className="connection-row"><span>Checkpoints found</span><span>{backend.status.checkpoints.length}</span></div>
-          <button className="subtle-button" onClick={backend.disconnect}>Disconnect</button>
+          {launcher?.phase === 'running' && <div className="connection-row"><span>Started by</span><span>Sound Studio</span></div>}
         </>}
-        <section className="settings-block launcher-block" aria-labelledby="launcher-heading">
-          <h3 id="launcher-heading"><Zap size={15} /> Start ComfyUI for me</h3>
-          <label className="field-label" htmlFor="comfy-folder">ComfyUI folder <span>{launcher?.layout ? layoutLabels[launcher.layout] : 'not chosen'}</span></label>
-          <div className="inline-field"><input id="comfy-folder" readOnly value={launcher?.folder ?? ''} placeholder="Choose the folder that contains ComfyUI" spellCheck={false} />
-            <button className="subtle-button" disabled={!launcher || comfyManaged} onClick={() => void backend.setComfyFolder('browse')}><FolderOpen size={14} /> Browse...</button></div>
-          {launcher?.installError && <p className="warning-text"><AlertTriangle size={14} /> {launcher.installError}</p>}
-          {launcher && !launcher.folder && launcher.detected && <p className="field-hint">Found ComfyUI at <span className="selectable">{launcher.detected}</span>{' '}
-            <button className="text-button" onClick={() => void backend.setComfyFolder('detected')}>Use this folder</button></p>}
-          <div className="launcher-actions">
-            {comfyManaged
-              ? <button className="subtle-button" onClick={() => void backend.stopComfy()}><Square size={12} /> {comfyStarting ? 'Cancel start' : 'Stop ComfyUI'}</button>
-              : <button className="primary" disabled={!launcher?.layout || connected || backend.connection.state === 'checking'} onClick={() => void backend.startComfy(endpointInput)}><Zap size={14} /> Start ComfyUI</button>}
-            {launcher?.folder && !comfyManaged && <button className="text-button" onClick={() => void backend.setComfyFolder('none')}>Forget folder</button>}
-            {launcher?.hasLog && <button className="text-button" onClick={() => void backend.showComfyLog()}>Show log</button>}
-          </div>
-          {backend.launcherError
-            ? <p className="warning-text" role="alert"><AlertTriangle size={14} /> {backend.launcherError}</p>
-            : launcher?.message && <p className={launcher.phase === 'exited' ? 'warning-text' : 'success-text'} role="status">
-              {comfyStarting ? <LoaderCircle className="spin" size={14} /> : launcher.phase === 'exited' ? <AlertTriangle size={14} /> : <Check size={14} />} {launcher.message}</p>}
-          {launcher?.phase === 'running' && <div className="connection-row"><span>Started by Sound Studio</span><span>Process {launcher.pid}</span></div>}
-          <label className="check-field"><input type="checkbox" checked={launcher?.startOnLaunch ?? false} disabled={!launcher?.layout}
-            onChange={event => void backend.setStartComfyOnLaunch(event.target.checked)} />
-            <span>Start ComfyUI when Sound Studio opens<small>Sound Studio connects as soon as it answers.</small></span></label>
-          <p className="fine-print">Runs ComfyUI's own Python and main.py, listening on this device only, and writes its output to a log. Closing Sound Studio stops the ComfyUI it started. A ComfyUI you started yourself is never stopped.</p>
-        </section>
-        <div className="connection-row"><span>Prompt drafts</span><span className="blue-text">{storageError ? 'In memory only' : 'Saved locally'}</span></div>
+        <div className="launcher-actions">
+          {launcher?.phase === 'running'
+            ? <button className="subtle-button" onClick={() => void backend.stopComfy()}><Square size={12} /> Stop ComfyUI</button>
+            : connected
+              ? <button className="subtle-button" onClick={backend.disconnect}>Disconnect</button>
+              : <button className="primary start-comfy" disabled={!launcher?.layout || comfyStarting || backend.connection.state === 'checking'} onClick={() => void backend.startComfy(endpointInput)}>
+                {comfyStarting ? <LoaderCircle className="spin" size={15} /> : <Zap size={15} />}{comfyStarting ? 'Starting ComfyUI...' : 'Start local ComfyUI'}</button>}
+          {comfyStarting && <button className="text-button" onClick={() => void backend.stopComfy()}>Cancel</button>}
+          {launcher?.hasLog && launcher.phase === 'exited' && <button className="text-button" onClick={() => void backend.showComfyLog()}>Show log</button>}
+        </div>
+        {backend.launcherError
+          ? <p className="warning-text" role="alert"><AlertTriangle size={14} /> {backend.launcherError}</p>
+          : launcher?.message && launcher.phase !== 'running' && <p className={launcher.phase === 'exited' ? 'warning-text' : 'field-hint'} role="status">
+            {launcher.phase === 'exited' && <AlertTriangle size={14} />} {launcher.message}</p>}
+        {!connected && <p className="fine-print">Runs that ComfyUI on this device only. Quitting Sound Studio stops it. A ComfyUI you started yourself is never stopped.</p>}        <div className="connection-row"><span>Prompt drafts</span><span className="blue-text">{storageError ? 'In memory only' : 'Saved locally'}</span></div>
         <div className="connection-row"><span>Takes</span><span>Saved locally ({backend.takes.length})</span></div>
         <div className="connection-row"><span>Cloud partner models</span><span className={backend.cloud?.enabled ? 'warning-inline' : ''}>{backend.cloud?.enabled ? 'Enabled' : 'Off'}</span></div>
       </>}

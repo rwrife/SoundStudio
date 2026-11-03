@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { candidateFolders, detectComfyInstall, findComfyInstall } from '../src/main/comfyInstall'
-import { comfyLaunchArguments, isFolderSource } from '../src/shared/launcher'
+import { comfyLaunchArguments } from '../src/shared/launcher'
 
 const files = (...paths: string[]) => {
   const set = new Set(paths.map(path => path.toLowerCase()))
@@ -53,6 +53,4 @@ test('launches ComfyUI on the loopback address and port of the endpoint only', (
   assert.deepEqual(comfyLaunchArguments('portable', 'C:\\P\\ComfyUI\\main.py', 'http://localhost:8188'),
     ['-s', 'C:\\P\\ComfyUI\\main.py', '--listen', '127.0.0.1', '--port', '8188', '--disable-auto-launch'])
   assert.deepEqual(comfyLaunchArguments('venv', '/c/main.py', 'http://[::1]:9000').slice(1, 5), ['--listen', '::1', '--port', '9000'])
-  assert.equal(isFolderSource('browse'), true)
-  assert.equal(isFolderSource('C:\\Windows'), false)
 })

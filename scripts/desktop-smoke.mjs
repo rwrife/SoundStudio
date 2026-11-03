@@ -150,25 +150,21 @@ try {
   await connections.getByRole('alert').waitFor()
   assert.equal(await page.getByRole('button', { name: /ComfyUI unavailable/ }).isVisible(), true)
 
-  // Start the user's ComfyUI: detected folder, loopback-only launch, auto-connect, log and stop.
-  const launcherBlock = connections.locator('.launcher-block')
+  // One-click start: the detected folder is prefilled, then the canvas button launches on loopback and connects.
   if (fakeComfy) {
-    await launcherBlock.getByText(`Found ComfyUI at ${fakeComfy.folder}`).waitFor()
-    assert.equal(await launcherBlock.getByRole('button', { name: 'Start ComfyUI' }).isDisabled(), true)
-    await launcherBlock.getByRole('button', { name: 'Use this folder' }).click()
-    await launcherBlock.getByText('Python virtual environment').waitFor()
     assert.equal(await connections.getByLabel(/^ComfyUI folder/).inputValue(), fakeComfy.folder)
+    assert.equal(await connections.getByRole('button', { name: 'Start local ComfyUI' }).isDisabled(), false)
     await connections.getByLabel(/ComfyUI address/).fill(fakeComfy.endpoint)
-    await launcherBlock.getByRole('button', { name: 'Start ComfyUI' }).click()
-    await page.getByRole('button', { name: /^Starting ComfyUI/ }).waitFor()
+    await page.keyboard.press('Escape')
+    await page.getByRole('button', { name: 'Start local ComfyUI' }).click()
     await page.getByRole('button', { name: /^ComfyUI connected/ }).waitFor({ timeout: 60_000 })
-    assert.match(await connections.innerText(), /0\.3\.0-launched/)
-    assert.match(await launcherBlock.innerText(), /Started by Sound Studio\s*Process \d+/)
+    await page.getByRole('button', { name: /^ComfyUI connected/ }).click()
+    assert.match(await connections.innerText(), /0\.3\.0-launched[\s\S]*Started by\s*Sound Studio/)
     assert.deepEqual(JSON.parse(await readFile(join(fakeComfy.folder, 'launch-args.json'), 'utf8')), ['--listen', '127.0.0.1', '--port', fakeComfy.port, '--disable-auto-launch'])
     assert.match(await readFile(join(userData, 'logs', 'comfyui.log'), 'utf8'), /Sound Studio started ComfyUI[\s\S]*Fake ComfyUI listening on 127\.0\.0\.1/)
-    await launcherBlock.getByRole('button', { name: 'Stop ComfyUI' }).click()
+    await connections.getByRole('button', { name: 'Stop ComfyUI' }).click()
     await page.getByRole('button', { name: /^Backend not connected/ }).waitFor()
-    await launcherBlock.getByText('ComfyUI stopped.').waitFor()
+    await connections.getByText('ComfyUI stopped.').waitFor()
     assert.equal(await stopsAnswering(fakeComfy.endpoint), true, 'Stop ends the process Sound Studio started')
   } else {
     console.warn('Python was not found, so the ComfyUI launcher check was skipped.')
@@ -340,28 +336,19 @@ try {
   assert.match(await page.locator('.saved-state').innerText(), /memory only/)
   assert.equal(await page.evaluate(() => localStorage.getItem('sound-studio.workspace.v1')), '{broken')
 
-  // Start on launch, and quitting stops only the ComfyUI that Sound Studio started.
+  // The dialog's start button, and quitting stops only the ComfyUI that Sound Studio started.
   if (fakeComfy) {
     await page.getByRole('button', { name: /^ComfyUI connected/ }).click()
     const backendDialog = page.getByRole('dialog', { name: 'Backend connections' })
     await backendDialog.getByRole('button', { name: 'Disconnect' }).click()
-    await backendDialog.getByLabel('Start ComfyUI when Sound Studio opens').click()
     await backendDialog.getByLabel(/ComfyUI address/).fill(fakeComfy.endpoint)
-    await backendDialog.getByRole('button', { name: 'Start ComfyUI' }).click()
+    await backendDialog.getByRole('button', { name: 'Start local ComfyUI' }).click()
     await page.getByRole('button', { name: /^ComfyUI connected/ }).waitFor({ timeout: 60_000 })
-    assert.equal(await backendDialog.getByLabel('Start ComfyUI when Sound Studio opens').isChecked(), true)
     await app.close()
     app = undefined
     assert.equal(await stopsAnswering(fakeComfy.endpoint), true, 'Quitting stops the ComfyUI Sound Studio started')
     assert.equal(await reachable(mock.endpoint), true, 'A ComfyUI started elsewhere is never stopped')
-    page = await launch()
-    await page.getByRole('button', { name: /^ComfyUI connected/ }).waitFor({ timeout: 60_000 })
-    assert.equal(await reachable(fakeComfy.endpoint), true, 'Start on launch')
-    await app.close()
-    app = undefined
-    assert.equal(await stopsAnswering(fakeComfy.endpoint), true)
-  }
-  assert.deepEqual(errors, [], 'No renderer errors or CSP violations')
+  }  assert.deepEqual(errors, [], 'No renderer errors or CSP violations')
   console.log(`Desktop smoke passed against a mock ComfyUI (${mock.prompts.length} prompts): connection policy, ${fakeComfy ? 'starting and stopping a ComfyUI install, ' : ''}local, failed, cancelled, cloud opt-in and custom-workflow jobs, playback, export with provenance, library delete, relaunch persistence, corrupt-storage handling and minimum window size.`)
 } finally {
   if (app) await app.close()

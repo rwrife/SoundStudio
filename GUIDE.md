@@ -7,7 +7,7 @@ Sound Studio is an Electron, React and TypeScript desktop app for AI sound effec
 **Implemented:**
 - Effects and Music workspaces with independent drafts.
 - A loopback-only ComfyUI connection with version, device and model-file checks.
-- Starting and stopping your own ComfyUI install, optionally when Sound Studio opens.
+- Starting and stopping your own ComfyUI install with one click.
 - Model profiles with readiness checks, hardware-fit guidance and per-model input limits.
 - Generation jobs with live progress, honest failure and cancellation states, and a one-hour limit.
 - Validation of returned audio before it becomes a take.
@@ -48,17 +48,17 @@ Only `127.0.0.1`, `localhost` and `[::1]` are accepted. Sound Studio does not ta
 
 ### Let Sound Studio start ComfyUI
 
-The **Start ComfyUI for me** section of the Backend connections dialog runs an existing install. It recognizes two layouts:
+Sound Studio looks for ComfyUI in usual places such as `%LOCALAPPDATA%\ComfyUI` or your Desktop and fills in the **ComfyUI folder** field. When it finds one, choose **Start local ComfyUI**, either in the Backend connections dialog or on the empty preview canvas. That single click starts ComfyUI and connects to it.
+
+It recognizes two layouts:
 
 - **Portable build:** the `ComfyUI_windows_portable` folder, with `python_embeded\python.exe` and `ComfyUI\main.py`. You can choose either that folder or its `ComfyUI` subfolder. Windows only.
 - **Source checkout:** a folder with `main.py` and a `venv` or `.venv` virtual environment.
 
-1. Choose **Browse...** and pick the folder, or choose **Use this folder** when Sound Studio finds one in a usual place such as `%LOCALAPPDATA%\ComfyUI` or your Desktop.
-2. Check the address, then choose **Start ComfyUI**. Sound Studio runs that install's own Python with `main.py --listen 127.0.0.1 --port <port> --disable-auto-launch`, waits up to five minutes for it to answer, and then connects. The first start can be slow while ComfyUI loads custom nodes.
-3. **Stop ComfyUI** ends that process. It is refused while a generation is running. Sound Studio also stops it when you quit.
-4. Tick **Start ComfyUI when Sound Studio opens** to start it automatically next time. If ComfyUI is already running at the address, Sound Studio connects to it instead of starting a second copy.
-
-Sound Studio only stops a ComfyUI it started itself. Console output goes to `logs\comfyui.log` in the app profile; choose **Show log** to find it. The folder and start-on-launch choice are stored in `comfyui-launcher.json` in the profile. The ComfyUI Desktop app (which listens on port 8000) cannot be started from here: start it yourself and connect to its address.
+- If ComfyUI is somewhere else, choose the folder icon beside the field and pick it. Sound Studio remembers that choice.
+- Sound Studio runs that install's own Python with `main.py --listen 127.0.0.1 --port <port> --disable-auto-launch` (the port comes from the address), waits up to five minutes for it to answer, and then connects. The first start can be slow while ComfyUI loads custom nodes. If ComfyUI is already running at the address, Sound Studio connects to it instead of starting a second copy.
+- **Stop ComfyUI** ends that process. It is refused while a generation is running. Sound Studio also stops it when you quit. On the next launch, choose **Start local ComfyUI** again.
+Sound Studio only stops a ComfyUI it started itself. Console output goes to `logs\comfyui.log` in the app profile; if it stops unexpectedly, choose **Show log** to find it. A folder you pick is stored in `comfyui-launcher.json` in the profile. The ComfyUI Desktop app (which listens on port 8000) cannot be started from here: start it yourself and connect to its address.
 
 ## Models
 
@@ -145,7 +145,7 @@ Takes are stored in the app profile under `takes/`. Each has an audio file and a
 
 - **Drafts:** local storage under `sound-studio.workspace.v1`, schema version 2. Version 1 drafts migrate automatically.
 - **Connection and model choices:** `sound-studio.backend.v1`.
-- **ComfyUI folder and start-on-launch:** `comfyui-launcher.json` in the profile, with the ComfyUI console log in `logs\comfyui.log`.
+- **Chosen ComfyUI folder:** `comfyui-launcher.json` in the profile, with the ComfyUI console log in `logs\comfyui.log`.
 - **Cloud key:** encrypted in the profile, as described above.
 - **Takes:** the profile's `takes` folder.
 
@@ -186,7 +186,7 @@ npm run test:desktop
 `npm run test:desktop` builds and launches the real Electron app with an isolated temporary profile. It runs against `scripts/mock-comfyui.mjs`, a test fixture that speaks the ComfyUI HTTP and WebSocket API and returns a synthesized test tone. The smoke test covers:
 
 - Connection policy.
-- Starting, stopping and start-on-launch for a fake ComfyUI install (`scripts/fake-comfyui-install.mjs`), which needs Python and is skipped without it.
+- One-click start from the canvas and dialog, stop, and stop-on-quit for a fake ComfyUI install (`scripts/fake-comfyui-install.mjs`), which needs Python and is skipped without it.
 - Local, failed and cancelled jobs.
 - Cloud opt-in and API-key handling.
 - ACE-Step and custom workflow graphs.
@@ -209,7 +209,7 @@ This runs the same checks and writes `effects-workspace.png`, `model-settings.pn
 |---|---|
 | "ComfyUI is not reachable" | Start ComfyUI, check the port in its console and choose **Recheck**. |
 | "main.py was not found" or "not its Python environment" | Choose the portable build's root folder, or a source checkout with a `venv` or `.venv`. For the ComfyUI Desktop app, start it yourself and connect. |
-| ComfyUI stops or never answers after **Start ComfyUI** | Choose **Show log** and read the end of `comfyui.log`. Common causes are a busy port, a missing Python package or a failing custom node. |
+| ComfyUI stops or never answers after **Start local ComfyUI** | Choose **Show log** and read the end of `comfyui.log`. Common causes are a busy port, a missing Python package or a failing custom node. |
 | "Only ComfyUI running on this device..." | Remote servers are not supported. Run ComfyUI locally on loopback. |
 | A model shows **NEEDS SETUP** | Follow the listed issues. Missing nodes need a newer ComfyUI or custom nodes. Missing files need to go in the named `models` folder; then restart ComfyUI and choose **Recheck**. |
 | Cloud models stay disabled | Store a Comfy.org API key first, then tick **Allow cloud partner models**. If encryption is unavailable, the key cannot be stored. |

@@ -207,8 +207,10 @@ select { padding-right: 6px; }
 .status-dot.warn { background: var(--warning); }
 .status-dot.starting { background: var(--accent-primary); animation: pulse 1.2s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: .25; } }
-.launcher-block .inline-field input { flex: 1; min-width: 0; }
-.launcher-block .inline-field .subtle-button { margin-top: 0; white-space: nowrap; }
+.inline-field input { flex: 1; min-width: 0; }
+.inline-field .icon-only { width: 38px; padding: 0; flex-shrink: 0; }
+.start-comfy { padding: 11px 16px; font-size: 12px; }
+.canvas-empty .start-comfy, .canvas-empty .subtle-button { margin-top: 14px; }
 .launcher-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-top: 14px; }
 .launcher-actions .subtle-button { margin-top: 0; }
 .warning-text, .success-text { display: flex; gap: 8px; align-items: flex-start; font-size: 11px; line-height: 1.6; margin: 12px 0; overflow-wrap: anywhere; }

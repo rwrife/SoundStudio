@@ -5,7 +5,7 @@ import {
   type JobState, type ModelChoice, type Readiness, type Result, type TakeRecord, type WorkflowInspection
 } from '../shared/generation'
 import type { Workspace } from '../shared/workspace'
-import type { FolderSource, LauncherStatus } from '../shared/launcher'
+import type { LauncherStatus } from '../shared/launcher'
 
 export const backendStorageKey = 'sound-studio.backend.v1'
 
@@ -101,7 +101,7 @@ export function useBackend() {
   const [launcher, setLauncher] = useState<LauncherStatus | null>(null)
   const [launcherError, setLauncherError] = useState('')
 
-  /** Starts the user's ComfyUI (or finds it already running), then connects to it. */
+  /** One click: starts the user's ComfyUI (or finds it already running), then connects to it. */
   const startComfy = useCallback(async (raw: string) => {
     if (!bridge) return
     let endpoint: string
@@ -110,8 +110,8 @@ export function useBackend() {
       return
     }
     setLauncherError('')
-    setSettings(current => ({ ...current, endpoint, connectOnLaunch: true }))
     try {
+      setSettings(current => ({ ...current, endpoint, connectOnLaunch: true }))
       setLauncher(await unwrap(bridge.startComfy(endpoint)))
     } catch (error) {
       setLauncherError(message(error))
@@ -147,12 +147,11 @@ export function useBackend() {
       launchHandled.current = true
       void bridge.getLauncher().then(async result => {
         if (result.ok) setLauncher(result.value)
-        if (result.ok && result.value.startOnLaunch && result.value.layout) await startComfy(loaded.settings.endpoint)
-        else if (loaded.settings.connectOnLaunch) await check(loaded.settings.endpoint)
+        if (loaded.settings.connectOnLaunch) await check(loaded.settings.endpoint)
       })
     }
     return unsubscribe
-  }, [bridge, check, loaded.settings, startComfy])
+  }, [bridge, check, loaded.settings])
 
   useEffect(() => {
     if (!bridge) return
@@ -233,8 +232,7 @@ export function useBackend() {
   return {
     available: !!bridge, settings, settingsError, connection, status, cloud, readiness, inspections, jobs, takes, unreadableTakes, takesError,
     launcher, launcherError, startComfy, stopComfy,
-    setComfyFolder: (source: FolderSource) => bridge ? launcherAction(() => bridge.setComfyFolder(source)) : Promise.resolve(),
-    setStartComfyOnLaunch: (enabled: boolean) => bridge ? launcherAction(() => bridge.setStartComfyOnLaunch(enabled)) : Promise.resolve(),
+    chooseComfyFolder: () => bridge ? launcherAction(() => bridge.chooseComfyFolder()) : Promise.resolve(),
     showComfyLog: async () => { if (bridge) { const result = await bridge.showComfyLog(); setLauncherError(result.ok ? '' : result.error) } },
     connect, disconnect, recheck: () => check(settings.endpoint), chooseModel, configureCloud, start, cancel, exportTake, deleteTake, refreshTakes
   }

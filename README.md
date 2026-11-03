@@ -56,7 +56,7 @@ npm install
 npm run dev
 ```
 
-Then choose **Backend not connected**. Pick your ComfyUI folder (a portable build or a source checkout with a virtual environment) and choose **Start ComfyUI**, or start ComfyUI yourself (by default at `http://127.0.0.1:8188`) and choose **Connect**. Open **Model Settings** to check which models are ready.
+If ComfyUI is installed in a usual place such as `%LOCALAPPDATA%\ComfyUI`, choose **Start local ComfyUI**: Sound Studio starts it on this device and connects. Otherwise choose **Backend not connected** and pick your ComfyUI folder (a portable build or a source checkout with a virtual environment), or start ComfyUI yourself (by default at `http://127.0.0.1:8188`) and choose **Connect**. Open **Model Settings** to check which models are ready.
 
 For a production build:
 

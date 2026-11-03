@@ -1,6 +1,6 @@
 import type { AudioInfo } from './audio'
 import type { BackendStatus, CloudConfiguration, CloudStatus, ComfyWorkflow, GenerationRequest, JobState, Result, TakeRecord, WorkflowInspection } from './generation'
-import type { FolderSource, LauncherStatus } from './launcher'
+import type { LauncherStatus } from './launcher'
 
 export interface TakeList { takes: TakeRecord[]; unreadable: number }
 export interface TakeAudio { bytes: Uint8Array; mimeType: string; info: AudioInfo }
@@ -10,9 +10,8 @@ export interface SoundStudioBridge {
   platform: string
   checkBackend(endpoint: string): Promise<Result<BackendStatus>>
   getLauncher(): Promise<Result<LauncherStatus>>
-  /** 'browse' opens a native folder picker in the main process; the renderer never supplies a path. */
-  setComfyFolder(source: FolderSource): Promise<Result<LauncherStatus>>
-  setStartComfyOnLaunch(enabled: boolean): Promise<Result<LauncherStatus>>
+  /** Opens a native folder picker in the main process; the renderer never supplies a path. */
+  chooseComfyFolder(): Promise<Result<LauncherStatus>>
   startComfy(endpoint: string): Promise<Result<LauncherStatus>>
   stopComfy(): Promise<Result<LauncherStatus>>
   showComfyLog(): Promise<Result<void>>
@@ -34,7 +33,6 @@ export const channels = {
   checkBackend: 'backend:check',
   launcherStatus: 'launcher:status',
   launcherFolder: 'launcher:folder',
-  launcherStartOnLaunch: 'launcher:start-on-launch',
   launcherStart: 'launcher:start',
   launcherStop: 'launcher:stop',
   launcherLog: 'launcher:log',

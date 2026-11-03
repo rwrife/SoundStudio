@@ -5,11 +5,11 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { normalizeEndpoint } from '../shared/generation'
-import { comfyLaunchArguments, type FolderSource, type LauncherPhase, type LauncherStatus } from '../shared/launcher'
+import { comfyLaunchArguments, type LauncherPhase, type LauncherStatus } from '../shared/launcher'
 import { candidateFolders, detectComfyInstall, findComfyInstall, type ComfyInstall } from './comfyInstall'
 import { ComfyClient } from './comfyui'
 
-interface StoredLauncher { version: 1; folder: string | null; startOnLaunch: boolean }
+interface StoredLauncher { version: 1; folder: string | null }
 
 const startupLimitMs = 5 * 60 * 1000
 const probeMs = 1500
@@ -23,15 +23,15 @@ async function reachable(endpoint: string) {
 }
 
 /**
- * Starts and stops the user's own ComfyUI on request. The folder is chosen only through a native dialog,
- * only recognized installs are run, ComfyUI listens on loopback only, and only the process started here is ever stopped.
+ * Starts and stops the user's own ComfyUI on request. The folder is found in a usual location or chosen through a
+ * native dialog, never supplied by the renderer. Only recognized installs are run, ComfyUI listens on loopback only, and only the process started here is ever stopped.
  */
 export class ComfyLauncher {
   private readonly file = join(app.getPath('userData'), 'comfyui-launcher.json')
   private readonly logPath = join(app.getPath('userData'), 'logs', 'comfyui.log')
-  private stored: StoredLauncher = { version: 1, folder: null, startOnLaunch: false }
+  private stored: StoredLauncher = { version: 1, folder: null }
   private loaded = false
-  private detected: ComfyInstall | null | undefined
+  private detected: ComfyInstall | null = null
   private child: ChildProcess | null = null
   private phase: LauncherPhase = 'stopped'
   private endpoint: string | null = null
@@ -44,10 +44,10 @@ export class ComfyLauncher {
     if (this.loaded) return
     try {
       const value = JSON.parse(await readFile(this.file, 'utf8'))
-      if (value?.version !== 1 || (value.folder !== null && typeof value.folder !== 'string') || typeof value.startOnLaunch !== 'boolean') {
+      if (value?.version !== 1 || (value.folder !== null && typeof value.folder !== 'string')) {
         throw new Error('Unsupported launcher settings file.')
       }
-      this.stored = { version: 1, folder: value.folder, startOnLaunch: value.startOnLaunch }
+      this.stored = { version: 1, folder: value.folder }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') console.warn('Ignoring unreadable ComfyUI launcher settings.', error)
     }
@@ -61,26 +61,24 @@ export class ComfyLauncher {
     await rename(temp, this.file)
   }
 
+  /** The chosen install, or else one found in a usual location. */
   private install(): { install: ComfyInstall | null; error: string } {
-    if (!this.stored.folder) return { install: null, error: '' }
+    if (!this.stored.folder) {
+      if (!this.detected) this.detected = findComfyInstall(candidateFolders(process.platform, process.env, homedir()), existsSync)
+      return { install: this.detected, error: '' }
+    }
     try { return { install: detectComfyInstall(this.stored.folder, existsSync), error: '' } } catch (error) { return { install: null, error: errorText(error) } }
   }
 
   async status(): Promise<LauncherStatus> {
     await this.load()
     const { install, error } = this.install()
-    if (!this.stored.folder && this.detected === undefined) {
-      this.detected = findComfyInstall(candidateFolders(process.platform, process.env, homedir()), existsSync)
-    }
     return {
       folder: install?.folder ?? this.stored.folder,
       layout: install?.layout ?? null,
       installError: error,
-      detected: this.stored.folder ? null : this.detected?.folder ?? null,
-      startOnLaunch: this.stored.startOnLaunch,
       phase: this.phase,
       endpoint: this.endpoint,
-      pid: this.child?.pid ?? null,
       message: this.message,
       hasLog: existsSync(this.logPath)
     }
@@ -90,32 +88,16 @@ export class ComfyLauncher {
     this.publish(await this.status())
   }
 
-  async setFolder(source: FolderSource, window: BrowserWindow): Promise<LauncherStatus> {
+  async chooseFolder(window: BrowserWindow): Promise<LauncherStatus> {
     await this.load()
     if (this.child) throw new Error('Stop the ComfyUI that Sound Studio started before changing its folder.')
-    let folder: string | null = null
-    if (source === 'browse') {
-      const result = await dialog.showOpenDialog(window, {
-        title: 'Choose your ComfyUI folder', buttonLabel: 'Use this folder', properties: ['openDirectory'],
-        defaultPath: this.stored.folder ?? this.detected?.folder ?? homedir()
-      })
-      if (result.canceled || !result.filePaths[0]) return this.status()
-      folder = detectComfyInstall(result.filePaths[0], existsSync).folder
-    } else if (source === 'detected') {
-      if (!this.detected) throw new Error('No ComfyUI install was found in the usual locations. Choose its folder instead.')
-      folder = detectComfyInstall(this.detected.folder, existsSync).folder
-    }
-    this.stored = { ...this.stored, folder, startOnLaunch: folder ? this.stored.startOnLaunch : false }
-    if (!folder) this.detected = undefined
+    const result = await dialog.showOpenDialog(window, {
+      title: 'Choose your ComfyUI folder', buttonLabel: 'Use this folder', properties: ['openDirectory'],
+      defaultPath: this.install().install?.folder ?? this.stored.folder ?? homedir()
+    })
+    if (result.canceled || !result.filePaths[0]) return this.status()
+    this.stored = { version: 1, folder: detectComfyInstall(result.filePaths[0], existsSync).folder }
     this.message = ''
-    await this.save()
-    return this.status()
-  }
-
-  async setStartOnLaunch(enabled: boolean): Promise<LauncherStatus> {
-    await this.load()
-    if (enabled && !this.install().install) throw new Error('Choose a ComfyUI folder that Sound Studio can start first.')
-    this.stored = { ...this.stored, startOnLaunch: enabled }
     await this.save()
     return this.status()
   }

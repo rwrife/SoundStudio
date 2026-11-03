@@ -1,7 +1,6 @@
 import { ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from 'electron'
 import { channels } from '../shared/bridge'
 import { takeIdPattern, validateCloudConfiguration, validateCustomWorkflow, validateGenerationRequest, type Result } from '../shared/generation'
-import { isFolderSource } from '../shared/launcher'
 import type { CloudAccess } from './cloud'
 import { ComfyClient } from './comfyui'
 import type { GenerationManager } from './generation'
@@ -33,14 +32,7 @@ export function registerIpc({ cloud, takes, generation, launcher, window }: Serv
 
   handle(channels.checkBackend, async (_window, endpoint) => new ComfyClient(endpoint).status())
   handle(channels.launcherStatus, async () => launcher.status())
-  handle(channels.launcherFolder, async (current, source) => {
-    if (!isFolderSource(source)) throw new Error('Unknown folder choice.')
-    return launcher.setFolder(source, current)
-  })
-  handle(channels.launcherStartOnLaunch, async (_window, enabled) => {
-    if (typeof enabled !== 'boolean') throw new Error('Unknown setting.')
-    return launcher.setStartOnLaunch(enabled)
-  })
+  handle(channels.launcherFolder, async current => launcher.chooseFolder(current))
   handle(channels.launcherStart, async (_window, endpoint) => launcher.start(endpoint))
   handle(channels.launcherStop, async () => launcher.stop())
   handle(channels.launcherLog, async () => launcher.showLog())
