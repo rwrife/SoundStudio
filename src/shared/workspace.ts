@@ -33,16 +33,26 @@ export interface Draft {
 }
 
 export interface StudioState {
-  version: 1
+  version: 2
   workspace: Workspace
   drafts: Record<Workspace, Draft>
+  decomposition: DecompositionDraft
 }
+
+const decompositionDraftSchema = z.object({
+  assetId: idSchema.nullable(), analysisId: idSchema.nullable(),
+  start: z.number().finite().min(0).max(1800), end: z.number().finite().min(0).max(1800),
+  stems: z.array(stemSchema).max(4),
+  lyrics: z.enum(['none', 'tiny', 'base']), wordTimestamps: z.boolean(), notes: z.boolean(), captions: z.boolean()
+}).strict()
+export type DecompositionDraft = z.infer<typeof decompositionDraftSchema>
 
 export function createInitialState(): StudioState {
   const common = { title: '', prompt: '', mood: 'Atmospheric', tempo: '90', seed: '', loop: false, instrumental: true, step: 'brief' as const }
   return {
-    version: 1,
+    version: 2,
     workspace: 'effects',
+    decomposition: { assetId: null, analysisId: null, ...defaultOptions },
     drafts: {
       effects: { ...common, category: 'General', duration: '5' },
       music: { ...common, category: 'Cinematic', duration: '30' },
@@ -70,13 +80,13 @@ export const examples: Record<Workspace, ReadonlyArray<{ title: string; detail: 
 }
 
 export function buildVariationBrief(draft: Draft): { title: string; prompt: string; tempo: string; mood: string; duration: string; instrumental: boolean } {
-  const stemMode = draft.loop ? 'Preserve separated stem roles (drums, bass, accompaniment).' : 'Focus on full-mix arrangement.'
-  const vocalMode = draft.instrumental ? 'Instrumental variation without vocals.' : 'Include vocal phrasing and lyric structure.'
+  const stemMode = 'No audio has been analysed; instrument and arrangement requests below are intentions only.'
+  const vocalMode = draft.instrumental ? 'Requested direction: instrumental.' : 'Requested direction: consider vocal phrasing and lyric structure.'
   const header = `${draft.category} (${draft.mood}, ${draft.tempo || '90'} BPM)`
-  const body = draft.prompt.trim() || 'Create a musical variation inspired by the analyzed reference track.'
-  const composedPrompt = `${header}: ${body}\n\n${stemMode} ${vocalMode}`.slice(0, 4000)
+  const body = draft.prompt || 'No analysis goal supplied.'
+  const composedPrompt = `Unanalysed intent\n${header}: ${body}\n\n${stemMode} ${vocalMode}`
   return {
-    title: draft.title ? `${draft.title} (variation)`.slice(0, 120) : '',
+    title: draft.title,
     prompt: composedPrompt,
     tempo: draft.tempo,
     mood: draft.mood,
@@ -93,7 +103,7 @@ function isDraft(value: unknown, workspace: Workspace): value is Draft {
   if (!isRecord(value)) return false
   const strings = ['title', 'prompt', 'category', 'mood', 'duration', 'tempo', 'seed'] as const
   const categories = workspace === 'effects' ? effectCategories : workspace === 'music' ? musicGenres : decomposerFocuses
-  return strings.every(key => typeof value[key] === 'string' && value[key].length <= 4000)
+  return strings.every(key => typeof value[key] === 'string' && value[key].length <= (key === 'prompt' && workspace === 'music' ? 200000 : 4000))
     && typeof value.title === 'string' && value.title.length <= 120
     && typeof value.category === 'string'
     && [...categories].some(category => category === value.category)
@@ -105,7 +115,7 @@ function isDraft(value: unknown, workspace: Workspace): value is Draft {
 
 export function parseStudioState(serialized: string): StudioState {
   const value: unknown = JSON.parse(serialized)
-  if (!isRecord(value) || value.version !== 1 || !workspaces.some(item => item.id === value.workspace)
+  if (!isRecord(value) || ![1, 2].includes(Number(value.version)) || typeof value.version !== 'number' || !workspaces.some(item => item.id === value.workspace)
     || !isRecord(value.drafts) || !isDraft(value.drafts.effects, 'effects') || !isDraft(value.drafts.music, 'music')) {
     throw new Error('The saved draft has an unsupported format.')
   }
@@ -115,8 +125,14 @@ export function parseStudioState(serialized: string): StudioState {
     throw new Error('The saved draft has an unsupported format.')
   }
   return {
-    version: 1,
+    version: 2,
     workspace: value.workspace as Workspace,
+    decomposition: value.version === 2 ? decompositionDraftSchema.parse(value.decomposition) : {
+      ...initial.decomposition,
+      stems: decomposer.loop ? ['vocals', 'drums', 'bass', 'other'] : [],
+      lyrics: decomposer.instrumental ? 'none' : 'tiny',
+      end: Number(decomposer.duration) > 0 && Number(decomposer.duration) <= 1800 ? Number(decomposer.duration) : 30
+    },
     drafts: {
       effects: value.drafts.effects,
       music: value.drafts.music,
@@ -124,3 +140,5 @@ export function parseStudioState(serialized: string): StudioState {
     }
   }
 }
+import { z } from 'zod'
+import { defaultOptions, idSchema, stemSchema } from './decomposer'

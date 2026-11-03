@@ -4,7 +4,7 @@
 
 Sound Studio is a local-first AI sound effects and music creation studio. Help game developers and creators describe, generate, review and export audio while keeping creative decisions and user assets under their control.
 
-The current product is an **application shell**, not a functioning audio generator. Effects and Music have editable, locally persisted drafts and placeholder workflows. Inference, models, audio playback, import, export, project files and an asset library are future capabilities. Do not present them as shipped.
+Effects and Music are an **application shell**, not a functioning audio generator. Decomposer imports and analyses existing local audio through a managed CPU worker, with optional explicitly installed ML profiles, playback, correction review, durable analysis storage and exports. Do not conflate implemented adapters or DSP tests with verified ML inference. Caption inference remains resource-blocked on the development machine. Portable projects, generation and a general searchable asset library are future capabilities.
 
 ## Repository layout
 
@@ -14,6 +14,7 @@ The current product is an **application shell**, not a functioning audio generat
 - `src/shared`: shared workflow types, defaults, sample briefs and saved-state validation.
 - `tests`: TypeScript tests for shared contracts.
 - `scripts`: real Electron smoke checks and documentation captures.
+- `scripts/analysis`: managed Python decoding, DSP, optional model adapters and pinned dependency requirements.
 - `docs/screenshots`: actual app captures used in the README.
 
 ## Development
@@ -27,7 +28,7 @@ npm run dev
 
 `npm run build` type-checks and builds the Electron application. `npm start` opens the build. `npm run dev:web` runs a renderer-only preview. See `GUIDE.md` for details and limitations.
 
-There are no model, Python or GPU prerequisites for the shell. Do not install an inference stack merely to work on the UI.
+There are no model, Python or GPU prerequisites for the generation shell. Decomposer uses explicitly installed isolated CPython 3.11.12 x64 on Windows; do not alter global runtimes or acquire large models merely to work on the UI.
 
 ## Implementation principles
 
@@ -36,7 +37,7 @@ There are no model, Python or GPU prerequisites for the shell. Do not install an
 - Reuse shared types, defaults, validation, components and semantic CSS tokens. Keep the implementation simple and avoid parallel workflow or settings systems.
 - Preserve independent Effects and Music drafts across navigation and settings. Version persisted schemas and migrate deliberately; do not silently overwrite malformed or unsupported saved data.
 - Display actionable errors. Do not disguise failed or unavailable inference as completed audio, generate fake library entries, or substitute analytic fixtures for AI output.
-- Keep original assets and completed outputs intact. Future exports must use actual validated audio and retain the prompt, model, parameters and source provenance.
+- Keep original assets and completed outputs intact. Exports must use actual validated artifacts and retain analysis options, model revisions, source provenance and raw results separately from user corrections.
 - Keep models, user audio, generated output, credentials, logs, build artifacts and local environments out of Git.
 - Do not add a backend, provider, model installer, packaging system or agent-control server without a task that calls for it. Current placeholders are intentional.
 
@@ -45,7 +46,7 @@ There are no model, Python or GPU prerequisites for the shell. Do not install an
 - Use the same workflow-first shell for **Effects** and **Music**. Keep text-only workspace tabs in the application header; use Character Studio's `"Segoe UI Variable", "Segoe UI", sans-serif` font stack and 19px tab labels.
 - Keep a horizontal, connected **chevron process stepper** above the main working surface. Show numbered markers, meaningful labels and readable state. Navigation is not execution or completion.
 - Use one left settings panel for the selected step's inputs and primary action. Keep asset-library access compact; do not add a permanent right settings or model column.
-- Dedicate the main surface to audio preview and review, with contextual transport and take trays. Keep empty states honest and generation/playback/export disabled until implemented.
+- Dedicate the main surface to audio preview and review, with contextual transport and take trays. Keep empty states honest and generation controls disabled. Decomposer playback/export must operate only on validated available artifacts.
 - Keep detailed configuration in an explicitly opened **Model Settings** panel. Opening it must not reset tabs, steps or draft values.
 - Show a compact **Local + model** summary beside AI actions, including when no model is selected. Never claim backend readiness or measured hardware without a real check.
 - Use **dark neutral-blue canvases, blue-gray panels, off-white text and pale-blue accents**. Use shared semantic CSS tokens, readable muted text and subtle borders. Preserve distinct warning/error treatment; never rely on color alone for status.
@@ -76,7 +77,7 @@ For UI, persistence, lifecycle and bridge changes:
 npm run test:desktop
 ```
 
-The desktop smoke uses the actual Electron app with an isolated temporary profile. It does not prove inference because inference does not exist. Keep tests aligned with real feature claims.
+The desktop smoke uses the actual Electron app with an isolated temporary profile. An isolated `.runtime` core installation enables real decoder/DSP scenarios; its synthetic fixture does not prove ML inference. Validate optional models using lawful real recordings, inspect artifacts and disclose unverified paths.
 
 ## README maintenance
 

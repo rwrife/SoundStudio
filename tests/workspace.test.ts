@@ -38,8 +38,14 @@ test('saved drafts round trip with their selected workspace and step, including 
     }
   }
   const migrated = parseStudioState(JSON.stringify(legacy))
+  assert.equal(migrated.version, 2)
   assert.equal(migrated.workspace, 'music')
   assert.deepEqual(migrated.drafts.decomposer, createInitialState().drafts.decomposer)
+  const oldDecomposer = { ...state, version: 1, decomposition: undefined }
+  const upgraded = parseStudioState(JSON.stringify(oldDecomposer))
+  assert.deepEqual(upgraded.drafts, state.drafts)
+  assert.deepEqual(upgraded.decomposition.stems, ['vocals', 'drums', 'bass', 'other'])
+  assert.equal(upgraded.decomposition.lyrics, 'tiny')
 })
 
 test('in-progress numeric edits are preserved as drafts, not silently changed', () => {
@@ -91,15 +97,27 @@ test('buildVariationBrief maps a Decomposer draft into a Music variation brief w
   state.drafts.decomposer.instrumental = false
 
   const brief = buildVariationBrief(state.drafts.decomposer)
-  assert.equal(brief.title, 'Neon skyline (variation)')
+  assert.equal(brief.title, 'Neon skyline')
   assert.match(brief.prompt, /Lyrics & vocals \(Uplifting, 118 BPM\)/)
-  assert.match(brief.prompt, /Preserve separated stem roles/)
-  assert.match(brief.prompt, /Include vocal phrasing and lyric structure/)
+  assert.match(brief.prompt, /Unanalysed intent/)
+  assert.match(brief.prompt, /No audio has been analysed/)
+  assert.doesNotMatch(brief.prompt, /Preserve separated stem roles|analyzed reference track/)
   assert.equal(brief.tempo, '118')
   assert.equal(brief.mood, 'Uplifting')
   assert.equal(brief.duration, '45')
   assert.equal(brief.instrumental, false)
 
   state.drafts.music = { ...state.drafts.music, ...brief, step: 'brief' }
+  assert.doesNotThrow(() => parseStudioState(JSON.stringify(state)))
+})
+
+test('draft handoff preserves all input instead of silently truncating', () => {
+  const state = createInitialState()
+  state.drafts.decomposer.prompt = 'x'.repeat(4000)
+  state.drafts.decomposer.title = 'y'.repeat(120)
+  const brief = buildVariationBrief(state.drafts.decomposer)
+  assert.ok(brief.prompt.includes(state.drafts.decomposer.prompt))
+  assert.equal(brief.title, state.drafts.decomposer.title)
+  state.drafts.music = { ...state.drafts.music, ...brief }
   assert.doesNotThrow(() => parseStudioState(JSON.stringify(state)))
 })

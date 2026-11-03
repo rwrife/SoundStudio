@@ -3,7 +3,7 @@
   "productName": "Sound Studio",
   "version": "0.1.0",
   "private": true,
-  "description": "A local-first AI sound effects and music studio. Application shell.",
+  "description": "Local-first audio analysis and sound/music drafting studio.",
   "type": "module",
   "main": "out/main/index.js",
   "engines": {
@@ -17,12 +17,14 @@
     "build": "npm run typecheck && electron-vite build",
     "test": "node --import tsx --test tests/*.test.ts",
     "test:desktop": "npm run build && node scripts/desktop-smoke.mjs",
-    "screenshots": "npm run build && node scripts/desktop-smoke.mjs --screenshots"
+    "screenshots": "npm run build && node scripts/desktop-smoke.mjs --screenshots",
+    "setup:analysis": "tsx scripts/setup-analysis.ts"
   },
   "dependencies": {
     "lucide-react": "1.61.0",
     "react": "19.3.1",
-    "react-dom": "19.3.1"
+    "react-dom": "19.3.1",
+    "zod": "4.1.12"
   },
   "devDependencies": {
     "@types/node": "26.6.5",

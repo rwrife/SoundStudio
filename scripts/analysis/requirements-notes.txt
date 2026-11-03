@@ -1,0 +1,12 @@
+-r requirements-core.txt
+basic-pitch==0.4.0
+# Basic Pitch's Python >=3.11 dependency requires TensorFlow even for TFLite.
+tensorflow==2.15.0
+tensorflow-intel==2.15.0; platform_system == "Windows"
+pretty-midi==0.2.10
+mido==1.3.3
+mir-eval==0.8.2
+resampy==0.4.2
+protobuf==4.25.6
+# pretty-midi 0.2.10 also imports pkg_resources.
+setuptools==75.8.2

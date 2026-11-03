@@ -12,6 +12,7 @@ import {
 } from '../shared/workspace'
 import { Dialog } from './Dialog'
 import { useStudioState } from './useStudioState'
+import { Decomposer, DecomposerModels } from './Decomposer'
 
 type Surface = 'models' | 'connections' | 'library' | 'help' | null
 
@@ -20,6 +21,8 @@ export function App() {
   const [surface, setSurface] = useState<Surface>(null)
   const [modelWorkspace, setModelWorkspace] = useState<Workspace>('effects')
   const [notice, setNotice] = useState('')
+  const [handoff, setHandoff] = useState<{ title: string; prompt: string; tempo: string; duration: string; instrumental: boolean } | null>(null)
+  const [runtimeRevision, setRuntimeRevision] = useState(0)
   const mainRef = useRef<HTMLElement>(null)
   const { workspace } = state
   const draft = state.drafts[workspace]
@@ -41,7 +44,16 @@ export function App() {
   }
 
   function sendBriefToMusic() {
-    const variation = buildVariationBrief(state.drafts.decomposer)
+    setHandoff(buildVariationBrief(state.drafts.decomposer))
+  }
+
+  function applyHandoff(append: boolean) {
+    if (!handoff) return
+    const prompt = append && state.drafts.music.prompt ? `${state.drafts.music.prompt}\n\n${handoff.prompt}` : handoff.prompt
+    if (prompt.length > 200000) {
+      setNotice('The full brief exceeds the Music draft limit. Export the structured analysis instead; nothing was truncated or replaced.')
+      return
+    }
     setState(current => ({
       ...current,
       workspace: 'music',
@@ -49,12 +61,13 @@ export function App() {
         ...current.drafts,
         music: {
           ...current.drafts.music,
-          ...variation,
+          ...(append ? { prompt } : { ...handoff, prompt }),
           step: 'brief'
         }
       }
     }))
-    setNotice('Decomposer brief transferred to the Music workspace. No audio was generated.')
+    setHandoff(null)
+    setNotice('Decomposer brief transferred to Music with your approval. No audio was generated.')
   }
 
   function navigateTabs(event: KeyboardEvent<HTMLElement>) {
@@ -102,7 +115,7 @@ export function App() {
       </nav>
       <div className="topbar-actions">
         <button className="subtle-button" onClick={openModels} aria-haspopup="dialog"><SlidersHorizontal size={15} /> Model Settings</button>
-        <button className="backend-button" onClick={() => setSurface('connections')} aria-haspopup="dialog"><span className="status-dot" /> Backend not connected <ChevronRight size={13} /></button>
+        <button className="backend-button" onClick={() => setSurface('connections')} aria-haspopup="dialog"><span className="status-dot" /> {isDecomposer ? 'Local analysis' : 'Generation not connected'} <ChevronRight size={13} /></button>
         <button className="icon-button" aria-label="Quick guide" onClick={() => setSurface('help')} aria-haspopup="dialog"><CircleHelp size={18} /></button>
       </div>
     </header>
@@ -112,7 +125,13 @@ export function App() {
     <div id="workspace" className="workspace-host">
       {workspaces.map(tab => <div key={tab.id} id={`${tab.id}-panel`} role="tabpanel"
         aria-labelledby={`${tab.id}-tab`} hidden={workspace !== tab.id} className="workspace-layout">
-        {workspace === tab.id && <>
+        {tab.id === 'decomposer' ? <Decomposer draft={state.drafts.decomposer} config={state.decomposition}
+          visible={workspace === 'decomposer'}
+          runtimeRevision={runtimeRevision}
+          updateDraft={patch => setState(current => ({ ...current, drafts: { ...current.drafts, decomposer: { ...current.drafts.decomposer, ...patch } } }))}
+          updateConfig={patch => setState(current => ({ ...current, decomposition: { ...current.decomposition, ...patch } }))}
+          openModels={() => { setModelWorkspace('decomposer'); setSurface('models') }} sendToMusic={setHandoff} storageError={storageError} />
+          : workspace === tab.id && <>
           <aside className="settings-panel" aria-label={`${tab.label} step settings`}>
             <div className="step-kicker"><span className="eyebrow">0{stepIndex + 1} / {stepLabel}</span><span className="mini-badge">PREVIEW</span></div>
             <h1>{draft.step === 'brief' ? isDecomposer ? 'Music decomposer' : isMusic ? 'Music studio' : 'Sound effects' : stepLabel}</h1>
@@ -123,8 +142,8 @@ export function App() {
               <label className="field-label" htmlFor="draft-title">{isDecomposer ? 'Analysis name' : 'Take name'} <span>optional</span></label>
               <input id="draft-title" maxLength={120} value={draft.title} placeholder={isDecomposer ? 'A reference worth studying' : isMusic ? 'An untold story' : 'An undiscovered sound'} onChange={event => updateDraft({ title: event.target.value })} />
 
-              <label className="field-label" htmlFor="prompt">{isDecomposer ? 'Describe your analysis goal' : isMusic ? 'Describe your music' : 'Describe your sound'} <span>{draft.prompt.length}/4000</span></label>
-              <textarea id="prompt" maxLength={4000} value={draft.prompt} placeholder={isDecomposer
+              <label className="field-label" htmlFor="prompt">{isDecomposer ? 'Describe your analysis goal' : isMusic ? 'Describe your music' : 'Describe your sound'} <span>{draft.prompt.length}/{isMusic ? '200000' : '4000'}</span></label>
+              <textarea id="prompt" maxLength={isMusic ? 200000 : 4000} value={draft.prompt} placeholder={isDecomposer
                 ? 'What should the breakdown capture? Note instruments, structure, groove, chords or vocal lines to study for variations...'
                 : isMusic
                   ? 'A feeling, an instrument, a world to get lost in...'
@@ -267,30 +286,29 @@ export function App() {
       </div>)}
     </div>
 
-    <footer className="statusbar"><span><ShieldCheck size={13} /> LOCAL FIRST <span className="footer-divider">/</span><span>No cloud. No uploads.</span></span><span className="footer-flow">Describe <ChevronRight size={10} /> {isDecomposer ? 'Decompose' : 'Generate'} <ChevronRight size={10} /> Refine <ChevronRight size={10} /> Export</span><span><span className="status-dot blue" /> SHELL PREVIEW <span className="footer-divider">/</span> v{version}</span></footer>
+    <footer className="statusbar"><span><ShieldCheck size={13} /> LOCAL FIRST <span className="footer-divider">/</span><span>No audio uploads.</span></span><span className="footer-flow">Describe <ChevronRight size={10} /> {isDecomposer ? 'Analyse' : 'Generate'} <ChevronRight size={10} /> Refine <ChevronRight size={10} /> Export</span><span><span className="status-dot blue" /> {isDecomposer ? 'LOCAL DECOMPOSER' : 'GENERATION SHELL'} <span className="footer-divider">/</span> v{version}</span></footer>
 
-    {surface === 'models' && <Dialog title="Model Settings" eyebrow="YOUR LOCAL ENGINE" drawer onClose={() => setSurface(null)}>
-      <p className="dialog-intro">The space for the models behind your sound. Nothing is downloaded or connected in this preview.</p>
+    {surface === 'models' && <Dialog title="Model Settings" eyebrow="YOUR LOCAL ENGINE" drawer onClose={() => { setSurface(null); setRuntimeRevision(current => current + 1) }}>
+      <p className="dialog-intro">Generation remains a shell. Decomposer has its own explicitly installed local analysis runtime.</p>
       <div className="segmented" aria-label="Model workspace">{workspaces.map(tab => <button key={tab.id} aria-pressed={modelWorkspace === tab.id} onClick={() => setModelWorkspace(tab.id)}>{tab.label}</button>)}</div>
-      <div className="model-card"><div className="model-card-icon">{modelWorkspace === 'effects' ? <AudioLines size={24} /> : modelWorkspace === 'music' ? <Music2 size={24} /> : <Layers3 size={24} />}</div><span className="outline-badge">NOT CONFIGURED</span>
-        <h3>{modelWorkspace === 'effects' ? 'Local sound generation' : modelWorkspace === 'music' ? 'Local music generation' : 'Local music decomposition'}</h3><p>A dedicated {modelWorkspace === 'decomposer' ? 'analysis pipeline for stem separation, tempo and harmony estimation, detailed musical captioning and lyric transcription. Model selection and installation will arrive with the analysis backend.' : `model for ${modelWorkspace === 'effects' ? 'sound effects, foley and ambience' : 'instrumental tracks and musical ideas'}. Model selection and installation will arrive with the generation backend.`}</p>
+      {modelWorkspace === 'decomposer' ? <DecomposerModels /> : <><div className="model-card"><div className="model-card-icon">{modelWorkspace === 'effects' ? <AudioLines size={24} /> : <Music2 size={24} />}</div><span className="outline-badge">NOT CONFIGURED</span>
+        <h3>{modelWorkspace === 'effects' ? 'Local sound generation' : 'Local music generation'}</h3><p>Generation model selection and installation are not implemented. No sound or music is generated.</p>
         <dl><div><dt>Execution</dt><dd>Local only (planned)</dd></div><div><dt>Selected model</dt><dd>None</dd></div><div><dt>Hardware readiness</dt><dd>Not checked</dd></div></dl>
       </div>
-      <div className="info-box"><ShieldCheck size={19} /><p>Your drafts stay on this device. This shell does not install models, contact inference services or upload your prompts.</p></div>
-      <div className="planned-section"><h3>Room for what's next</h3><p>Hardware-aware model profiles, explicit downloads and model-specific generation and analysis controls. These are planned capabilities, not active settings.</p></div>
+      <div className="info-box"><ShieldCheck size={19} /><p>Your drafts stay on this device. No remote inference services are contacted.</p></div></>}
     </Dialog>}
 
     {surface === 'connections' && <Dialog title="Backend connections" eyebrow="LOCAL INFRASTRUCTURE" onClose={() => setSurface(null)}>
-      <div className="connection-state"><span className="connection-icon"><Radio size={25} /></span><div><h3>No backend connected</h3><p>This is the application shell, not a running generation or analysis service.</p></div></div>
-      <div className="info-box"><Info size={18} /><p>Backend connection, model installation and hardware checks are not implemented yet. There is no endpoint to configure or service to start.</p></div>
+      <div className="connection-state"><span className="connection-icon"><Radio size={25} /></span><div><h3>Local analysis, no generation backend</h3><p>Decomposer starts a managed worker per job. It never connects to a cloud inference endpoint.</p></div></div>
+      <div className="info-box"><Info size={18} /><p>Install Decomposer profiles in Model Settings. Runtime and model acquisition require network access; audio analysis runs offline. Effects and Music generation remain unavailable.</p></div>
       <div className="connection-row"><span>Prompt drafts</span><span className="blue-text">{storageError ? 'In memory only' : 'Saved locally'}</span></div>
-      <div className="connection-row"><span>Audio generation & decomposition</span><span>Not available</span></div>
+      <div className="connection-row"><span>Audio generation</span><span>Not available</span></div>
       <div className="connection-row"><span>Network requests for inference</span><span>None</span></div>
     </Dialog>}
 
     {surface === 'library' && <Dialog title="Sound library" eyebrow="YOUR COLLECTION" drawer onClose={() => setSurface(null)}>
       <p className="dialog-intro">A place for your effects, music, breakdowns and happy accidents.</p>
-      <div className="library-empty"><FolderOpen size={42} strokeWidth={1} /><h3>Good things start with a blank slate.</h3><p>No audio assets yet. A searchable library will arrive with generation, decomposition and import support.</p><span className="outline-badge">0 EFFECTS / 0 MUSIC / 0 BREAKDOWNS</span></div>
+      <div className="library-empty"><FolderOpen size={42} strokeWidth={1} /><h3>No generated effects or music.</h3><p>Imported recordings and saved analyses are in Decomposer's Analysis library.</p><button className="secondary-button" onClick={() => { setSurface(null); selectWorkspace('decomposer') }}>Open Decomposer</button></div>
       <div className="info-box"><Info size={17} /><p>Your current drafts live in the Effects, Music and Decomposer workspaces. They are not generated audio, analyzed stems or library assets.</p></div>
     </Dialog>}
 
@@ -298,9 +316,15 @@ export function App() {
       <p className="dialog-intro">Three workspaces. One place to find and understand your sound.</p>
       <div className="guide-item"><AudioLines size={20} /><div><h3>Effects for the little details</h3><p>Describe ambience, foley, interface sounds or something entirely new. Choose a category and sketch your timing.</p></div></div>
       <div className="guide-item"><Music2 size={20} /><div><h3>Music for the bigger picture</h3><p>Set a genre, mood and tempo. Give your future soundtrack a direction.</p></div></div>
-      <div className="guide-item"><Layers3 size={20} /><div><h3>Decomposer for studying existing music</h3><p>Plan stem separation, harmonic and tempo analysis, detailed musical descriptions and lyric transcription to guide future variations.</p></div></div>
+      <div className="guide-item"><Layers3 size={20} /><div><h3>Decomposer for studying existing music</h3><p>Install a local runtime, import a recording and analyse an excerpt. Optional models separate stems, transcribe lyrics, extract MIDI and describe audio. Review estimates before exporting or sending a brief to Music.</p></div></div>
       <div className="guide-item"><Clock3 size={20} /><div><h3>Your ideas stay with you</h3><p>Drafts are saved on this device as you edit. Switching tabs or opening settings does not discard them.</p></div></div>
-      <div className="info-box"><Info size={17} /><p>This early shell supports drafts and navigation only. Generation, decomposition, playback, imports, exports and model setup are coming later.</p></div>
+      <div className="info-box"><Info size={17} /><p>Effects and Music are draft-only workspaces. Decomposer analyses existing audio; it does not generate music. Model estimates can be wrong and always need review.</p></div>
+    </Dialog>}
+    {handoff && <Dialog title="Send brief to Music" eyebrow="PRESERVE YOUR EXISTING DRAFT" onClose={() => setHandoff(null)}>
+      <p className="dialog-intro">Transfer {handoff.prompt.length.toLocaleString()} characters. Your current Music draft is unchanged until you choose an action. Append preserves its settings; replace uses the analysis settings.</p>
+      <pre className="handoff-preview">{handoff.prompt}</pre>
+      <div className="export-actions"><button className="primary" onClick={() => applyHandoff(true)}>Append to Music draft</button><button className="secondary-button" onClick={() => applyHandoff(false)}>Replace Music draft</button><button onClick={() => setHandoff(null)}>Cancel transfer</button></div>
+      {notice && <p role="status">{notice}</p>}
     </Dialog>}
   </div>
 }

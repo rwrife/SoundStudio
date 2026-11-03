@@ -1,7 +1,12 @@
-import { app, BrowserWindow, dialog, session } from 'electron'
+import { app, BrowserWindow, dialog, protocol, session } from 'electron'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
+import { registerDecomposer } from './decomposer-ipc'
+import type { AnalysisStore } from './analysis-store'
 
 app.setName('Sound Studio')
+protocol.registerSchemesAsPrivileged([{ scheme: 'soundstudio', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } }])
+let store: AnalysisStore | undefined
 
 async function createWindow() {
   const window = new BrowserWindow({
@@ -48,12 +53,23 @@ function reportStartupError(error: unknown) {
 app.whenReady().then(async () => {
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false))
   session.defaultSession.setPermissionCheckHandler(() => false)
+  const renderer = pathToFileURL(join(import.meta.dirname, '../renderer/index.html')).href
+  store = await registerDecomposer(app.getPath('userData'), join(import.meta.dirname, '../../scripts/analysis'), event => {
+    const frame = event.senderFrame
+    if (!frame || frame !== event.sender.mainFrame || !BrowserWindow.fromWebContents(event.sender)) return false
+    const url = new URL(frame.url)
+    if (url.href === renderer) return true
+    const devUrl = process.env.ELECTRON_RENDERER_URL
+    return !app.isPackaged && Boolean(devUrl) && url.origin === new URL(devUrl!).origin
+      && url.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(url.hostname)
+  })
   await createWindow()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) void createWindow().catch(reportStartupError)
   })
 }).catch(reportStartupError)
 
+app.on('before-quit', () => store?.shutdown())
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
