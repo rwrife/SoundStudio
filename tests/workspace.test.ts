@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { createInitialState, examples, parseStudioState, steps, workspaces } from '../src/shared/workspace'
+import { buildVariationBrief, createInitialState, examples, parseStudioState, steps, workspaces } from '../src/shared/workspace'
 
 test('workspaces have independent drafts and honest initial state', () => {
   const state = createInitialState()
@@ -77,4 +77,29 @@ test('all workspaces have useful sample briefs without output claims', () => {
       assert.doesNotThrow(() => parseStudioState(JSON.stringify(state)))
     }
   }
+})
+
+test('buildVariationBrief maps a Decomposer draft into a Music variation brief within schema limits', () => {
+  const state = createInitialState()
+  state.drafts.decomposer.title = 'Neon skyline'
+  state.drafts.decomposer.prompt = 'Arpeggiated bass and gated drums with airy vocal hook'
+  state.drafts.decomposer.category = 'Lyrics & vocals'
+  state.drafts.decomposer.mood = 'Uplifting'
+  state.drafts.decomposer.tempo = '118'
+  state.drafts.decomposer.duration = '45'
+  state.drafts.decomposer.loop = true
+  state.drafts.decomposer.instrumental = false
+
+  const brief = buildVariationBrief(state.drafts.decomposer)
+  assert.equal(brief.title, 'Neon skyline (variation)')
+  assert.match(brief.prompt, /Lyrics & vocals \(Uplifting, 118 BPM\)/)
+  assert.match(brief.prompt, /Preserve separated stem roles/)
+  assert.match(brief.prompt, /Include vocal phrasing and lyric structure/)
+  assert.equal(brief.tempo, '118')
+  assert.equal(brief.mood, 'Uplifting')
+  assert.equal(brief.duration, '45')
+  assert.equal(brief.instrumental, false)
+
+  state.drafts.music = { ...state.drafts.music, ...brief, step: 'brief' }
+  assert.doesNotThrow(() => parseStudioState(JSON.stringify(state)))
 })

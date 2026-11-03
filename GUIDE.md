@@ -40,9 +40,9 @@ Options are draft intentions, not promises of model support. There is deliberate
 ### The workflow
 
 1. **Describe:** edit your brief or analysis plan, or load a sample.
-2. **Generate / Decompose:** inspect the brief or breakdown summary; generation and decomposition remain disabled.
+2. **Generate / Decompose:** inspect the brief or planned analysis pipeline (stem separation, timing/harmony and lyric transcription stages); generation and decomposition remain disabled.
 3. **Review & refine:** a placeholder for listening, inspecting stems/lyrics and comparing real takes.
-4. **Export:** a placeholder for output configuration; no file or breakdown is created.
+4. **Export:** a placeholder for audio/breakdown output configuration; no file is created. From Decomposer's Export step, **Send brief to Music workspace** transfers your structured variation brief, mood, duration, tempo and vocal intention into the Music workspace's Describe step without generating audio.
 
 Selecting a sample replaces the current prompt and category, returns to Describe and leaves other draft controls unchanged. It never generates or analyzes audio. Effects, Music and Decomposer keep their drafts and selected steps independently.
 

@@ -69,6 +69,22 @@ export const examples: Record<Workspace, ReadonlyArray<{ title: string; detail: 
   ]
 }
 
+export function buildVariationBrief(draft: Draft): { title: string; prompt: string; tempo: string; mood: string; duration: string; instrumental: boolean } {
+  const stemMode = draft.loop ? 'Preserve separated stem roles (drums, bass, accompaniment).' : 'Focus on full-mix arrangement.'
+  const vocalMode = draft.instrumental ? 'Instrumental variation without vocals.' : 'Include vocal phrasing and lyric structure.'
+  const header = `${draft.category} (${draft.mood}, ${draft.tempo || '90'} BPM)`
+  const body = draft.prompt.trim() || 'Create a musical variation inspired by the analyzed reference track.'
+  const composedPrompt = `${header}: ${body}\n\n${stemMode} ${vocalMode}`.slice(0, 4000)
+  return {
+    title: draft.title ? `${draft.title} (variation)`.slice(0, 120) : '',
+    prompt: composedPrompt,
+    tempo: draft.tempo,
+    mood: draft.mood,
+    duration: draft.duration,
+    instrumental: draft.instrumental
+  }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

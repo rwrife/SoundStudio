@@ -7,8 +7,8 @@ import {
 } from 'lucide-react'
 import { version } from '../../package.json'
 import {
-  decomposerFocuses, effectCategories, examples, musicGenres, musicMoods,
-  steps, workspaces, type Draft, type Step, type Workspace
+  buildVariationBrief, decomposerFocuses, effectCategories, examples, musicGenres,
+  musicMoods, steps, workspaces, type Draft, type Step, type Workspace
 } from '../shared/workspace'
 import { Dialog } from './Dialog'
 import { useStudioState } from './useStudioState'
@@ -38,6 +38,23 @@ export function App() {
   function selectWorkspace(next: Workspace) {
     setState(current => ({ ...current, workspace: next }))
     setNotice('')
+  }
+
+  function sendBriefToMusic() {
+    const variation = buildVariationBrief(state.drafts.decomposer)
+    setState(current => ({
+      ...current,
+      workspace: 'music',
+      drafts: {
+        ...current.drafts,
+        music: {
+          ...current.drafts.music,
+          ...variation,
+          step: 'brief'
+        }
+      }
+    }))
+    setNotice('Decomposer brief transferred to the Music workspace. No audio was generated.')
   }
 
   function navigateTabs(event: KeyboardEvent<HTMLElement>) {
@@ -147,8 +164,13 @@ export function App() {
             </> : draft.step === 'generate' ? <>
               <div className="summary-card"><span className="eyebrow">{isDecomposer ? 'YOUR ANALYSIS PLAN' : 'YOUR BRIEF'}</span><h3>{draft.title || (isDecomposer ? 'Untitled breakdown' : 'Untitled take')}</h3>
                 <p>{draft.prompt || 'No description yet. Head back to Describe to shape your idea.'}</p>
-                <div className="summary-tags"><span>{draft.category}</span><span>{draft.duration || '--'} sec</span>{isDecomposer && <span>{draft.instrumental ? 'No lyrics' : 'With lyrics'}</span>}</div>
+                <div className="summary-tags"><span>{draft.category}</span><span>{draft.duration || '--'} sec</span>{isDecomposer && <span>{draft.loop ? '4 stems' : 'Full mix'}</span>}{isDecomposer && <span>{draft.instrumental ? 'No lyrics' : 'With lyrics'}</span>}</div>
               </div>
+              {isDecomposer && <div className="pipeline-list" aria-label="Planned analysis stages">
+                <div className="pipeline-item"><Layers3 size={15} /><div><strong>Stem separation</strong><small>{draft.loop ? 'Vocals, drums, bass & accompaniment' : 'Skipped (full-mix analysis only)'}</small></div></div>
+                <div className="pipeline-item"><ListMusic size={15} /><div><strong>Timing & harmony</strong><small>Target {draft.tempo || '--'} BPM, key, chords & section grid</small></div></div>
+                <div className="pipeline-item"><FileText size={15} /><div><strong>Lyric transcription</strong><small>{draft.instrumental ? 'Disabled (instrumental track)' : 'Sung words & line timestamps'}</small></div></div>
+              </div>}
               <button className="text-button" onClick={() => selectStep('brief')}>Edit your {isDecomposer ? 'analysis plan' : 'brief'} <ArrowRight size={14} /></button>
               <div className="info-box"><Info size={17} /><p>{isDecomposer ? 'Local audio decomposition is not connected in this shell. No files are imported and no analysis models are installed.' : 'Local generation is not connected in this shell. No models are installed and no prompts are sent.'}</p></div>
             </> : <>
@@ -160,10 +182,16 @@ export function App() {
                     ? 'Inspect separated stems, timed musical descriptions, chord estimates and lyric transcripts here once decomposition is available.'
                     : 'Audition takes, compare variations and refine your sound here once generation is available.'
                   : isDecomposer
-                    ? 'Export structured musical briefs, isolated stems, MIDI or variation prompts once real song analysis is available.'
+                    ? 'Export structured musical briefs, isolated stems or MIDI once song analysis is available, or send your draft analysis plan directly to the Music workspace.'
                     : 'Output formats and export controls will appear here when real audio is available.'}</p>
               </div>
-              <div className="info-box"><Info size={17} /><p>{draft.step === 'review' ? isDecomposer ? 'There are no decomposed tracks or transcripts to review yet.' : 'There are no generated takes to review yet.' : isDecomposer ? 'No song has been analyzed. Breakdown export is not available.' : 'No audio file has been created. Export is not available.'}</p></div>
+              {isDecomposer && draft.step === 'review' && <div className="pipeline-list" aria-label="Breakdown review layers">
+                <div className="pipeline-item"><Waves size={15} /><div><strong>Isolated stems</strong><small>No separated audio stems loaded</small></div></div>
+                <div className="pipeline-item"><Music2 size={15} /><div><strong>Musical brief & chords</strong><small>Awaiting local caption & harmony pass</small></div></div>
+                <div className="pipeline-item"><FileText size={15} /><div><strong>Lyric transcript</strong><small>{draft.instrumental ? 'Marked instrumental' : 'No vocal transcript aligned yet'}</small></div></div>
+              </div>}
+              {isDecomposer && draft.step === 'export' && <button className="secondary-button full" onClick={sendBriefToMusic}><Music2 size={15} /> Send brief to Music workspace <ArrowRight size={14} /></button>}
+              <div className="info-box"><Info size={17} /><p>{draft.step === 'review' ? isDecomposer ? 'There are no decomposed tracks or transcripts to review yet.' : 'There are no generated takes to review yet.' : isDecomposer ? 'No song has been analyzed. Audio stem and MIDI export are not available.' : 'No audio file has been created. Export is not available.'}</p></div>
             </>}
 
             <div className="action-area">
