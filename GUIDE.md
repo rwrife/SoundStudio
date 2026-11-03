@@ -4,9 +4,9 @@
 
 Sound Studio is an Electron, React and TypeScript application shell for future local AI sound and music generation. It follows Character Studio's workflow-first layout, with a blue rather than green palette.
 
-Implemented: Effects and Music navigation, contextual workflow steps, editable draft controls, local draft persistence, sample briefs, accessible placeholder dialogs and an empty audio canvas.
+Implemented: Effects, Music and Decomposer navigation, contextual workflow steps, editable draft controls, local draft persistence, sample briefs and breakdowns, accessible placeholder dialogs and an empty audio canvas.
 
-Not implemented: inference, backend connections, hardware detection, model downloads, audio import, audio synthesis, playback, waveform analysis, editing, export, projects, searchable libraries, packaging or an MCP server. Disabled controls are intentional. Navigating to a later step never marks work complete.
+Not implemented: inference, music decomposition, lyric transcription, backend connections, hardware detection, model downloads, audio import, audio synthesis, playback, waveform analysis, editing, export, projects, searchable libraries, packaging or an MCP server. Disabled controls are intentional. Navigating to a later step never marks work complete.
 
 ## Install and run
 
@@ -31,30 +31,34 @@ Write a take name and sound description. Select a sound category, draft duration
 
 Write a musical brief, choose a genre and mood, and draft duration, tempo and instrumental-only intentions. Sample briefs cover cinematic, lo-fi and ambient music.
 
-Options are draft intentions, not promises of model support. There is deliberately no executable generation contract yet. Numeric fields may retain incomplete or out-of-range edits; future inference adapters must validate their actual model-specific constraints before execution.
+### Decomposer
+
+Write an analysis name and breakdown goal, choose an analysis focus (`Full breakdown`, `Stems & arrangement`, `Tempo & harmony`, `Lyrics & vocals` or `Variation brief`), set character/mood, excerpt window and reference tempo, and toggle stem separation and lyric transcription intentions. Sample breakdowns cover synthwave stem and groove study, harmonic movement analysis and vocal/lyric transcription planning.
+
+Options are draft intentions, not promises of model support. There is deliberately no executable generation or analysis contract yet. Numeric fields may retain incomplete or out-of-range edits; future inference adapters must validate their actual model-specific constraints before execution.
 
 ### The workflow
 
-1. **Describe:** edit your brief or load a sample.
-2. **Generate:** inspect the brief summary; generation remains disabled.
-3. **Review & refine:** a placeholder for listening and comparing real takes.
-4. **Export:** a placeholder for output configuration; no file is created.
+1. **Describe:** edit your brief or analysis plan, or load a sample.
+2. **Generate / Decompose:** inspect the brief or breakdown summary; generation and decomposition remain disabled.
+3. **Review & refine:** a placeholder for listening, inspecting stems/lyrics and comparing real takes.
+4. **Export:** a placeholder for output configuration; no file or breakdown is created.
 
-Selecting a sample replaces the current prompt and category, returns to Describe and leaves other draft controls unchanged. It never generates audio. Effects and Music keep their drafts and selected steps independently.
+Selecting a sample replaces the current prompt and category, returns to Describe and leaves other draft controls unchanged. It never generates or analyzes audio. Effects, Music and Decomposer keep their drafts and selected steps independently.
 
 The header tabs support Left/Right arrows, Home and End. Dialogs contain focus while open, close with Escape and restore focus to the launcher. Settings and content scroll independently on desktop; the shell has a single-column fallback for narrow browser previews. The Electron window minimum is 960 by 700 pixels.
 
 ## Model Settings, connections and library
 
-**Model Settings** opens separately from the workflow and shows Effects or Music model placeholders. Neither workspace has a configured model. Hardware readiness is explicitly **Not checked**.
+**Model Settings** opens separately from the workflow and shows Effects, Music or Decomposer model placeholders. None of the workspaces has a configured model. Hardware readiness is explicitly **Not checked**.
 
-**Backend connections** explains that no inference backend is available. It does not test endpoints, start services or install anything.
+**Backend connections** explains that no inference or analysis backend is available. It does not test endpoints, start services or install anything.
 
-**Sound library** is an honest empty state. A prompt draft is not an audio asset. The take count stays at zero until real asset support exists.
+**Sound library** is an honest empty state. A prompt or analysis draft is not an audio asset. The take and breakdown counts stay at zero until real asset support exists.
 
 ## Draft storage and privacy
 
-The renderer saves a versioned state object in local storage under `sound-studio.workspace.v1`, scoped to the current Electron profile or browser origin. Both drafts, the selected tab and each selected workflow step are saved as they change. This is convenience storage, not a portable project format or backup.
+The renderer saves a versioned state object in local storage under `sound-studio.workspace.v1`, scoped to the current Electron profile or browser origin. All three drafts, the selected tab and each selected workflow step are saved as they change. Legacy v1 states saved before the Decomposer workspace existed are upgraded in memory with default Decomposer draft values when loaded. This is convenience storage, not a portable project format or backup.
 
 Drafts are unencrypted. Do not enter credentials or sensitive material. The shell makes no inference requests and has no telemetry, uploads or remote provider settings.
 
@@ -95,7 +99,7 @@ Capture the actual app for documentation:
 npm run screenshots
 ```
 
-This runs the same desktop checks and writes `docs/screenshots/effects-workspace.png` and `docs/screenshots/music-workspace.png`. Inspect captures before committing; never use mockups as evidence of working audio generation.
+This runs the same desktop checks and writes `docs/screenshots/effects-workspace.png`, `docs/screenshots/music-workspace.png` and `docs/screenshots/decomposer-workspace.png`. Inspect captures before committing; never use mockups as evidence of working audio generation or decomposition.
 
 ## Troubleshooting
 
