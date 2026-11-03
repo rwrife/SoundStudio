@@ -1,3 +1,3 @@
 interface Window {
-  soundStudio?: Readonly<{ platform: string }>
+  soundStudio?: Readonly<import('../shared/bridge').SoundStudioBridge>
 }

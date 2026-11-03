@@ -3,7 +3,7 @@
   "productName": "Sound Studio",
   "version": "0.1.0",
   "private": true,
-  "description": "A local-first AI sound effects and music studio. Application shell.",
+  "description": "A local-first AI sound effects and music studio that drives your local ComfyUI.",
   "type": "module",
   "main": "out/main/index.js",
   "engines": {
