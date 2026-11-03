@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { buildVariationBrief, createInitialState, examples, parseStudioState, steps, workspaces } from '../src/shared/workspace'
+import {
+  buildVariationBrief, createInitialState, examples, isGenerationWorkspace, parseStudioState, steps, studioStateVersion, workspaces
+} from '../src/shared/workspace'
 
 test('workspaces have independent drafts and honest initial state', () => {
   const state = createInitialState()
@@ -29,18 +31,14 @@ test('saved drafts round trip with their selected workspace and step, including 
   state.drafts.effects.seed = '123'
   assert.deepEqual(parseStudioState(JSON.stringify(state)), state)
 
-  const legacy = {
-    version: 1,
-    workspace: 'music',
-    drafts: {
-      effects: state.drafts.effects,
-      music: state.drafts.music
-    }
+  const { decomposer: _decomposer, ...withoutDecomposer } = state.drafts
+  for (const version of [1, 2]) {
+    const migrated = parseStudioState(JSON.stringify({ version, workspace: 'music', drafts: withoutDecomposer }))
+    assert.equal(migrated.version, studioStateVersion)
+    assert.equal(migrated.workspace, 'music')
+    assert.deepEqual(migrated.drafts.decomposer, createInitialState().drafts.decomposer)
+    assert.deepEqual(migrated.drafts.music, state.drafts.music)
   }
-  const migrated = parseStudioState(JSON.stringify(legacy))
-  assert.equal(migrated.version, 2)
-  assert.equal(migrated.workspace, 'music')
-  assert.deepEqual(migrated.drafts.decomposer, createInitialState().drafts.decomposer)
   const oldDecomposer = { ...state, version: 1, decomposition: undefined }
   const upgraded = parseStudioState(JSON.stringify(oldDecomposer))
   assert.deepEqual(upgraded.drafts, state.drafts)
@@ -57,18 +55,69 @@ test('in-progress numeric edits are preserved as drafts, not silently changed', 
 })
 
 test('rejects malformed, unsupported and incomplete saved state', () => {
-  for (const value of ['not json', 'null', '[]', '{}', '{"version":2}', '{"version":1,"workspace":"effects","drafts":null}']) {
+  for (const value of ['not json', 'null', '[]', '{}', '{"version":2}', '{"version":3,"workspace":"effects","drafts":{}}', '{"version":1,"workspace":"effects","drafts":null}']) {
     assert.throws(() => parseStudioState(value))
   }
   const state = createInitialState()
   for (const patch of [
     { step: 'complete' }, { prompt: 123 }, { category: 'Unknown' }, { mood: 'Unknown' },
-    { loop: 'true' }, { instrumental: null }, { title: 'x'.repeat(121) }, { prompt: 'x'.repeat(4001) }
+    { loop: 'true' }, { instrumental: null }, { title: 'x'.repeat(121) }, { prompt: 'x'.repeat(4001) },
+    { lyrics: 5 }, { lyrics: 'x'.repeat(4001) }, { musicKey: 'H major' }
   ]) {
     assert.throws(() => parseStudioState(JSON.stringify({ ...state, drafts: { ...state.drafts, effects: { ...state.drafts.effects, ...patch } } })))
     assert.throws(() => parseStudioState(JSON.stringify({ ...state, drafts: { ...state.drafts, decomposer: { ...state.drafts.decomposer, ...patch } } })))
   }
   assert.throws(() => parseStudioState(JSON.stringify({ ...state, workspace: 'settings' })))
+})
+
+test('migrates version 1 drafts by adding empty lyrics and a default key', () => {
+  const current = createInitialState()
+  current.drafts.music.prompt = 'Warm piano'
+  const strip = ({ lyrics: _lyrics, musicKey: _key, ...rest }: typeof current.drafts.music) => rest
+  const v1 = { version: 1, workspace: 'music', drafts: { effects: strip(current.drafts.effects), music: strip(current.drafts.music) } }
+  const migrated = parseStudioState(JSON.stringify(v1))
+  assert.equal(migrated.version, studioStateVersion)
+  assert.deepEqual(migrated, { ...current, workspace: 'music' })
+  assert.throws(() => parseStudioState(JSON.stringify({ ...v1, version: 2 })), 'version 2 drafts must already include lyrics and key')
+
+  const v1WithDecomposer = { ...v1, workspace: 'decomposer', drafts: { ...v1.drafts, decomposer: strip(current.drafts.decomposer) } }
+  const withDecomposer = parseStudioState(JSON.stringify(v1WithDecomposer))
+  assert.deepEqual(withDecomposer.drafts, current.drafts)
+  assert.equal(withDecomposer.workspace, 'decomposer')
+  assert.equal(withDecomposer.decomposition.lyrics, 'tiny')
+  assert.throws(() => parseStudioState(JSON.stringify({ ...v1WithDecomposer, drafts: { ...v1WithDecomposer.drafts, decomposer: null } })),
+    'a malformed Decomposer draft is rejected, not replaced')
+})
+
+test('unified v3 preserves both parallel v2 schemas, generation lyrics/key and analysis selections', () => {
+  const current = createInitialState()
+  current.workspace = 'decomposer'
+  current.drafts.effects.prompt = 'Rain with footsteps'
+  current.drafts.music.lyrics = '[chorus]\nA user-authored refrain'
+  current.drafts.music.musicKey = 'F# minor'
+  current.drafts.decomposer.prompt = 'Retain this goal'
+  current.decomposition.notes = true
+  current.decomposition.start = 12
+  current.decomposition.end = 25
+  assert.deepEqual(parseStudioState(JSON.stringify({ ...current, version: 2 })), current)
+  const { decomposition: _analysis, ...generation } = current
+  const migratedGeneration = parseStudioState(JSON.stringify({ ...generation, version: 2 }))
+  assert.deepEqual(migratedGeneration.drafts, current.drafts)
+  const strip = ({ lyrics: _lyrics, musicKey: _key, ...rest }: typeof current.drafts.music) => rest
+  const analysis = { ...current, version: 2, drafts: Object.fromEntries(Object.entries(current.drafts).map(([key, draft]) => [key, strip(draft)])) }
+  const migratedAnalysis = parseStudioState(JSON.stringify(analysis))
+  assert.deepEqual(migratedAnalysis.decomposition, current.decomposition)
+  assert.equal(migratedAnalysis.drafts.music.lyrics, '')
+  assert.equal(migratedAnalysis.drafts.effects.prompt, current.drafts.effects.prompt)
+  assert.equal(migratedAnalysis.drafts.decomposer.prompt, current.drafts.decomposer.prompt)
+  assert.throws(() => parseStudioState(JSON.stringify({ ...analysis, decomposition: { broken: true } })))
+  assert.throws(() => parseStudioState(JSON.stringify({ ...generation, version: studioStateVersion })))
+  assert.throws(() => parseStudioState(JSON.stringify({ ...current, version: 99 })))
+})
+
+test('only Effects and Music reach generation paths', () => {
+  assert.deepEqual(workspaces.map(item => item.id).filter(isGenerationWorkspace), ['effects', 'music'])
+  assert.equal(isGenerationWorkspace('decomposer'), false)
 })
 
 test('all workspaces have useful sample briefs without output claims', () => {

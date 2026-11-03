@@ -467,11 +467,13 @@ class DecoderAndDSPTests(WorkspaceTest):
         self.assertEqual(existing.read_bytes(), b"keep")
 
     def test_partial_optional_failure_rolls_back_all_outputs(self):
+        import numpy as np
+        import soundfile as sf
         reference = self.write_audio("reference.wav", duration=1, kind="silence")
         output = self.folder("rollback")
 
         def partial_stems(audio, rate, root, scratch, selected, report):
-            (scratch / "vocals.wav").write_bytes(b"partial output")
+            sf.write(scratch / "vocals.wav", np.zeros((44100, 2), dtype="float32"), 44100, subtype="PCM_16")
             return []
 
         with mock.patch.object(worker, "read_manifest", return_value=(self.models, {})), \
@@ -482,6 +484,106 @@ class DecoderAndDSPTests(WorkspaceTest):
                 worker.analyze(reference, output, self.models, options(end=1, stems=["vocals"], lyrics="tiny"))
         self.assertEqual(list(output.iterdir()), [])
         self.assertFalse(any(event.get("type") == "result" for event in self.events))
+
+    def test_lyric_routing_uses_generated_vocals_rate_and_absolute_source_offset(self):
+        import hashlib
+        import numpy as np
+        import soundfile as sf
+        reference = self.write_audio("reference.wav", duration=3, rate=48000, kind="silence")
+        output = self.folder("vocal-routing")
+        selected = options(start=1, end=2, stems=["vocals"], lyrics="tiny", wordTimestamps=True)
+
+        def stems(audio, rate, root, scratch, requested, report):
+            self.assertEqual(rate, 48000)
+            sf.write(scratch / "vocals.wav", np.full((44100, 2), 0.25, dtype="float32"), 44100, subtype="PCM_16")
+            return []
+
+        def lyrics(audio, rate, root, requested, report):
+            self.assertEqual(rate, 44100)
+            self.assertEqual(audio.shape, (44100, 2))
+            self.assertTrue(np.all(audio == 0.25))
+            self.assertEqual((requested["start"], requested["end"]), (1, 2))
+            words = [SimpleNamespace(start=np.float64(0.25), end=np.float64(0.75), word="test")]
+            segment = SimpleNamespace(start=0.25, end=0.75, words=words, text="test")
+            return worker.collect_lyrics([segment], requested, report)
+
+        with mock.patch.object(worker, "read_manifest", return_value=(self.models, {})), \
+                mock.patch.object(worker, "import_profile"), \
+                mock.patch.object(worker, "run_stems", side_effect=stems), \
+                mock.patch.object(worker, "run_lyrics", side_effect=lyrics) as transcribe:
+            result = worker.analyze(reference, output, self.models, selected)
+        transcribe.assert_called_once()
+        self.assertEqual(result["lyrics"], [{"start": 1.25, "end": 1.75, "text": "test"}])
+        evidence = json.loads(next(row["details"] for row in result["provenance"] if row["stage"] == "lyrics-tiny"))
+        audio_input = evidence["inputAudio"]
+        self.assertEqual(audio_input["kind"], "separated-vocals")
+        self.assertEqual(audio_input["sampleRate"], 44100)
+        self.assertEqual(audio_input["sourceOffsetSeconds"], 1)
+        self.assertEqual(audio_input["sha256"], hashlib.sha256((output / "vocals.wav").read_bytes()).hexdigest())
+        self.assertEqual(audio_input["separationRevision"], worker.PROFILES["stems"]["revision"])
+        self.assertTrue(any("generated vocals stem" in warning for warning in result["warnings"]))
+        worker.validate_result(result, selected)
+
+    def test_lyric_routing_without_selected_vocals_labels_original_full_mix(self):
+        import numpy as np
+        import soundfile as sf
+        reference = self.write_audio("reference.wav", duration=3, rate=48000, kind="silence")
+        for selected_stems in ([], ["drums"]):
+            with self.subTest(stems=selected_stems):
+                output = self.folder("mix-routing-" + str(len(selected_stems)))
+                selected = options(start=1, end=2, stems=selected_stems, lyrics="tiny")
+
+                def stems(audio, rate, root, scratch, requested, report):
+                    for stem in requested:
+                        sf.write(scratch / f"{stem}.wav", np.full((44100, 2), 0.5, dtype="float32"),
+                                 44100, subtype="PCM_16")
+                    return []
+
+                def lyrics(audio, rate, root, requested, report):
+                    self.assertEqual(rate, 48000)
+                    self.assertEqual(audio.shape, (48000, 1))
+                    self.assertTrue(np.all(audio == 0))
+                    return worker.collect_lyrics(
+                        [SimpleNamespace(start=0.25, end=0.75, words=None, text="test")], requested, report)
+
+                with mock.patch.object(worker, "read_manifest", return_value=(self.models, {})), \
+                        mock.patch.object(worker, "import_profile"), \
+                        mock.patch.object(worker, "run_stems", side_effect=stems), \
+                        mock.patch.object(worker, "run_lyrics", side_effect=lyrics):
+                    result = worker.analyze(reference, output, self.models, selected)
+                evidence = json.loads(next(row["details"] for row in result["provenance"] if row["stage"] == "lyrics-tiny"))
+                self.assertEqual(evidence["inputAudio"]["kind"], "full-mix")
+                self.assertEqual(evidence["inputAudio"]["sampleRate"], 48000)
+                self.assertEqual(evidence["inputAudio"]["sourceOffsetSeconds"], 1)
+                self.assertTrue(any("Lyric input: full mix" in warning for warning in result["warnings"]))
+                self.assertEqual(result["lyrics"][0]["start"], 1.25)
+                worker.validate_result(result, selected)
+
+    def test_lyric_routing_never_falls_back_after_missing_invalid_or_failed_stems(self):
+        import numpy as np
+        import soundfile as sf
+        reference = self.write_audio("reference.wav", duration=1, kind="silence")
+        for failure in ("missing", "decode", "duration", "separation"):
+            with self.subTest(failure=failure):
+                output = self.folder("no-fallback-" + failure)
+
+                def stems(audio, rate, root, scratch, requested, report):
+                    if failure == "separation":
+                        raise worker.WorkerError("separation failed")
+                    if failure == "decode":
+                        (scratch / "vocals.wav").write_bytes(b"invalid audio")
+                    elif failure == "duration":
+                        sf.write(scratch / "vocals.wav", np.zeros((22050, 2), dtype="float32"), 44100, subtype="PCM_16")
+                    return []
+
+                with mock.patch.object(worker, "read_manifest", return_value=(self.models, {})), \
+                        mock.patch.object(worker, "import_profile"), \
+                        mock.patch.object(worker, "run_stems", side_effect=stems), \
+                        mock.patch.object(worker, "run_lyrics") as transcribe:
+                    with self.assertRaises(worker.WorkerError):
+                        worker.analyze(reference, output, self.models, options(end=1, stems=["vocals"], lyrics="tiny"))
+                    transcribe.assert_not_called()
+                self.assertEqual(list(output.iterdir()), [])
 
     def test_subprocess_diagnosis_and_end_to_end_protocol(self):
         diagnosis = self.invoke({"command": "diagnose", "models": str(self.models)})

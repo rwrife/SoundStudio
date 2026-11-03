@@ -3,7 +3,7 @@
   "productName": "Sound Studio",
   "version": "0.1.0",
   "private": true,
-  "description": "Local-first audio analysis and sound/music drafting studio.",
+  "description": "Local-first audio analysis and sound/music generation with your ComfyUI.",
   "type": "module",
   "main": "out/main/index.js",
   "engines": {
@@ -16,8 +16,8 @@
     "typecheck": "tsc --noEmit",
     "build": "npm run typecheck && electron-vite build",
     "test": "node --import tsx --test tests/*.test.ts",
-    "test:desktop": "npm run build && node scripts/desktop-smoke.mjs",
-    "screenshots": "npm run build && node scripts/desktop-smoke.mjs --screenshots",
+    "test:desktop": "npm run build && node scripts/desktop-smoke.mjs && node scripts/decomposer-smoke.mjs",
+    "screenshots": "npm run build && node scripts/desktop-smoke.mjs --screenshots && node scripts/decomposer-smoke.mjs --screenshots",
     "setup:analysis": "tsx scripts/setup-analysis.ts"
   },
   "dependencies": {

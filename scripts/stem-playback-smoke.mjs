@@ -22,11 +22,11 @@ try {
   const page = await app.firstWindow()
   await page.getByRole('tab', { name: 'Effects', exact: true }).waitFor()
   await page.evaluate(job => {
-    const state = JSON.parse(localStorage.getItem('sound-studio.workspace.v2'))
+    const state = JSON.parse(localStorage.getItem('sound-studio.workspace.v3'))
     state.workspace = 'decomposer'
     state.drafts.decomposer.step = 'review'
     state.decomposition = { assetId: job.assetId, analysisId: job.id, ...job.options }
-    localStorage.setItem('sound-studio.workspace.v2', JSON.stringify(state))
+    localStorage.setItem('sound-studio.workspace.v3', JSON.stringify(state))
   }, job)
   await page.reload()
   await page.getByRole('button', { name: 'Separated stems', exact: true }).click()

@@ -642,6 +642,43 @@ def run_lyrics(audio, sample_rate: int, root: Path, options: dict, report) -> tu
     return collect_lyrics(segments, options, report)
 
 
+def prepare_lyric_input(audio, sample_rate: int, scratch: Path, options: dict):
+    import numpy as np
+    import soundfile as sf
+
+    evidence = {
+        "kind": "full-mix", "file": "reference.wav", "sampleRate": sample_rate,
+        "channels": audio.shape[1], "sourceOffsetSeconds": options["start"],
+        "durationSeconds": len(audio) / sample_rate,
+    }
+    if "vocals" not in options["stems"]:
+        return audio, sample_rate, evidence
+    path = child_file(scratch, "vocals.wav")
+    check(path.is_file(), "The selected vocals stem is missing. Lyrics will not fall back to the full mix.")
+    try:
+        with sf.SoundFile(path) as reader:
+            check(reader.format == "WAV" and reader.subtype == "PCM_16" and reader.channels in (1, 2)
+                  and 8000 <= reader.samplerate <= 192000 and reader.frames > 0,
+                  "The generated vocals stem is not valid PCM16 audio. Lyrics will not fall back to the full mix.")
+            vocal_rate = reader.samplerate
+            vocal_duration = reader.frames / vocal_rate
+            check(abs(vocal_duration - len(audio) / sample_rate) <= 2 / vocal_rate + 1 / sample_rate,
+                  "The generated vocals stem duration does not match the excerpt. Lyrics will not fall back to the full mix.")
+            vocals = reader.read(dtype="float32", always_2d=True)
+            check(len(vocals) == reader.frames and np.isfinite(vocals).all(),
+                  "The generated vocals stem contains invalid samples. Lyrics will not fall back to the full mix.")
+    except (sf.LibsndfileError, OSError):
+        raise WorkerError("The generated vocals stem could not be decoded. Lyrics will not fall back to the full mix.") from None
+    with path.open("rb") as handle:
+        digest = hashlib.file_digest(handle, "sha256").hexdigest()
+    evidence.update({
+        "kind": "separated-vocals", "file": "vocals.wav", "sampleRate": vocal_rate,
+        "channels": vocals.shape[1], "durationSeconds": vocal_duration, "sha256": digest,
+        "separationModel": PROFILES["stems"]["repo"], "separationRevision": PROFILES["stems"]["revision"],
+    })
+    return vocals, vocal_rate, evidence
+
+
 def normalize_note_timings(midi, duration: float) -> tuple[list[str], dict]:
     tolerance = 2 * 256 / 22050  # Two Basic Pitch analysis frames.
     adjustments = []
@@ -835,13 +872,21 @@ def analyze(source: Path, output: Path, models: Path, options: dict) -> dict:
                                 "stemAudioOffsetSeconds": options["start"], "format": "PCM16 stereo"})
                 result["warnings"].append("Separated stems are estimates with possible bleed and artifacts; stem files contain only the selected excerpt.")
             elif profile.startswith("lyrics-"):
-                lyrics, lyric_warnings, timestamp_evidence = run_lyrics(audio, sample_rate, roots[profile], options, report)
+                lyric_audio, lyric_rate, input_evidence = prepare_lyric_input(audio, sample_rate, scratch, options)
+                lyrics, lyric_warnings, timestamp_evidence = run_lyrics(
+                    lyric_audio, lyric_rate, roots[profile], options, report)
                 result["lyrics"] = lyrics
                 result["warnings"].extend(lyric_warnings)
                 details.update({"computeType": "int8", "beamSize": 5, "vadFilter": False,
-                                "conditionOnPreviousText": False, "wordTimestamps": options["wordTimestamps"]})
+                                "conditionOnPreviousText": False, "wordTimestamps": options["wordTimestamps"],
+                                "inputAudio": input_evidence})
                 details.update(timestamp_evidence)
+                if input_evidence["kind"] == "separated-vocals":
+                    result["warnings"].append("Lyric input: generated vocals stem. Separation artifacts can affect transcription.")
+                else:
+                    result["warnings"].append("Lyric input: full mix; no vocals stem was selected. Accompaniment can affect transcription.")
                 result["warnings"].append("Whisper is a speech model: sung lyrics can be incomplete, incorrect, or hallucinated. Word timings do not prove correctness.")
+                del lyric_audio
             elif profile == "notes":
                 note_warnings, timestamp_evidence = run_notes(audio, sample_rate, roots[profile], scratch, options)
                 result["warnings"].extend(note_warnings)

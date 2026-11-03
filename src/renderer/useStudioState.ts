@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
 import { createInitialState, parseStudioState } from '../shared/workspace'
 
-export const storageKey = 'sound-studio.workspace.v2'
+export const storageKey = 'sound-studio.workspace.v3'
 
 export function useStudioState() {
   const [loaded] = useState(() => {
     try {
-      const saved = localStorage.getItem(storageKey) ?? localStorage.getItem('sound-studio.workspace.v1')
+      const saved = localStorage.getItem(storageKey) ?? localStorage.getItem('sound-studio.workspace.v2') ?? localStorage.getItem('sound-studio.workspace.v1')
       return { state: saved ? parseStudioState(saved) : createInitialState(), error: '' }
     } catch (error) {
       return {

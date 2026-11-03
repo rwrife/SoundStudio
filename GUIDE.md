@@ -1,154 +1,279 @@
 # Sound Studio guide
 
-## Scope
+## Current scope
 
-Effects and Music remain locally saved **generation drafts**, not audio generators. Decomposer works on an existing recording: local import, waveform/playback, excerpt analysis, review, library reopening and exports. It does not create music or prove that a variation is legally reusable.
+Sound Studio is an Electron, React and TypeScript desktop app for AI sound effects and music. It follows Character Studio's workflow-first layout, with a blue rather than green palette. Generation is delegated to a [ComfyUI](https://github.com/comfyanonymous/ComfyUI) server that you run on the same device.
 
-The managed analysis runtime initially targets **Windows x64**, including x64 emulation on Windows ARM64. Other operating systems can run the application shell but managed analysis setup is not implemented for them. The renderer-only browser preview cannot access desktop audio APIs.
+**Implemented:**
+- Effects and Music workspaces with independent drafts.
+- Decomposer: secure local import, waveform/playback, excerpt analysis, optional stems/lyrics/MIDI, editable findings, saved analyses and non-overwriting exports. It analyses existing recordings, never generates music; see the [Decomposer guide](docs/DECOMPOSER.md).
+- A loopback-only ComfyUI connection with version, device and model-file checks.
+- Starting and stopping your own ComfyUI install with one click.
+- Confirmed, SHA-256-verified downloads of the default local models into that install.
+- Model profiles with readiness checks, hardware-fit guidance and per-model input limits.
+- Generation jobs with live progress, honest failure and cancellation states, and a one-hour limit.
+- Validation of returned audio before it becomes a take.
+- Playback with waveforms drawn from the decoded file.
+- A local take library with delete.
+- Export of the original file with a provenance record.
+- Opt-in cloud partner models with an encrypted API key.
+- Imported custom ComfyUI workflows.
+
+**Not implemented:**
+- Installing or updating ComfyUI, starting the ComfyUI Desktop app, and downloading models other than the default local ones below.
+- Verified caption inference on the development host: the implemented Qwen2-Audio profile exceeds its RAM budget and remains unverified.
+- General-purpose audio editing, variations, loop refinement or loudness processing.
+- Project files, search, packaging and an MCP server.
+
+Sound Studio never fakes audio. If ComfyUI is unavailable, a model is missing or a job fails, you see that state rather than a placeholder take.
 
 ## Install and run
 
-Use Node.js 22.12+ and npm in PowerShell:
+Use Node.js 22.12+ and npm from the repository root:
 
 ```powershell
 npm install
 npm run dev
 ```
 
-`npm run build` type-checks and builds into `out`; `npm start` opens that build. `.\Start-SoundStudio.ps1` opens an existing build. `npm run dev:web` serves only the renderer at `http://127.0.0.1:5173`.
+`npm run dev` starts the Electron app with renderer hot reload. `npm run build` type-checks and builds into `out`, and `npm start` opens that build. `.\Start-SoundStudio.ps1` checks for dependencies and an existing build before launching it.
 
-No Python or model is required for Effects/Music drafts. For Decomposer, open **Model Settings > Decomposer**, install **Audio + timing / harmony**, then explicitly install any optional model profiles you need. The application does not modify global Python, PATH, or other worktrees.
+`npm run dev:web` serves only the renderer at `http://127.0.0.1:5173`. It is useful for visual work, but cannot reach ComfyUI, play takes or export. Browser preview storage is separate from the desktop profile.
 
-## Decomposer workflow
+## Set up ComfyUI
 
-1. **Import & plan:** choose a local WAV, FLAC, MP3, OGG or M4A. Extension is only a first filter; the actual decoder must accept the file. The original is copied intact into the app profile and SHA-256 hashed. A separate decoded WAV supports playback and waveform display. Limits are 512 MB, 30 minutes, one or two channels, and 8-192 kHz input. Unsupported, corrupt and external-reference files are rejected.
-2. **Analyse:** select an excerpt of up to 10 minutes and the desired stages. Timing/energy/harmony DSP is always included. Optional stages require installed profiles. Analysis never silently installs a model. Jobs run serially with queued, running, failed, cancelled and completed states; selecting a workflow step is not execution.
-3. **Review & refine:** audition the reference, seek, and use mute/solo for available stems. Edit tempo/key, timed sections, chord estimates, audio descriptions and lyric lines. Save reviewed corrections before exporting or changing the selected analysis. Raw machine results are retained separately. Timestamps are seconds from the original source.
-4. **Export:** choose a directory. Each export creates a new uniquely named folder without overwriting existing files. Export only real available stem WAVs, MIDI, LRC/SRT lyrics, structured JSON or Markdown. Every export includes JSON provenance and both raw and reviewed results.
+1. Install a recent ComfyUI build: the portable or desktop release, or a source checkout. Older builds may lack the ACE-Step 1.5 or partner nodes; Model Settings names any missing nodes.
+2. Open Sound Studio. It looks for ComfyUI at `http://127.0.0.1:8188` on every launch. If ComfyUI is not running, the header shows **Setup needs attention** and the Effects and Music panels show **ComfyUI is not running**.
+3. Choose either one to open **Backend connections**, then choose **Start local ComfyUI** (see below), or start ComfyUI yourself, type its address and press Enter.
+4. After **Start local ComfyUI**, Sound Studio offers to download any missing default models (see [Download the default models](#download-the-default-models)). Confirm, and generation becomes available when the download finishes.
+5. Work down the **Readiness checks** until each shows a check mark. Each row that needs attention has a button that fixes it or opens the right place. If you add model files yourself, choose **Refresh**; restart ComfyUI if they still don't appear.
 
-The analysis goal and sample cards are **text-only intent**. They are not fed back as acoustic evidence. Imported material must be material you are entitled to process.
+Only `127.0.0.1`, `localhost` and `[::1]` are accepted. Sound Studio does not talk to remote ComfyUI servers. Even so, any other program on this device can reach an open ComfyUI port, so keep ComfyUI bound to loopback.
 
-### What the stages mean
+### Readiness checks
 
-| Stage | Output and limitations |
+| Check | What it reports |
 |---|---|
-| Librosa timing / energy | Beat locations, tempo and RMS measurements from decoded audio. Tempo may be half/double time; silence or weak rhythm may yield no estimate. |
-| Chroma harmony | Key and major/minor chord estimates, not authoritative notation. Complex voicings, detuning and dense mixes are difficult. |
-| Section estimates | Conservative acoustic-change segments, not verified verse/chorus labels. |
-| HTDemucs | Selected vocals/drums/bass/other WAVs from a four-source model. Selecting fewer output stems does not make the underlying inference cheaper. Bleed and artifacts are expected. |
-| Whisper tiny/base | Local CPU-int8 transcription. Singing, backing vocals and multilingual passages may be mistranscribed or hallucinated. Optional word timing is an estimate, **not correctness verification**. |
-| Basic Pitch | Optional note/MIDI extraction. This is not a chord/key/beat estimator. Dense polyphonic mixes are difficult. |
-| Qwen2-Audio-7B-Instruct | Audio-backed descriptions over windows no longer than 30 seconds, retained as timed results. A model can hallucinate instruments, harmony or structure; compare against the audio. |
+| ComfyUI folder | The detected or chosen install and its layout. **Choose folder** when none was found. |
+| ComfyUI server | The version and address, and whether Sound Studio started it. **Start** when it is not running. |
+| Graphics processor | The devices and VRAM that ComfyUI reports. A warning when it reports only the processor. |
+| Audio output node | Whether Sound Studio's WAV output node is installed and loaded (below). **Install** or **Restart ComfyUI** when needed. |
+| Effects model, Music model | Whether the selected model is ready, with the checkpoint in use, or what is missing. **Download** when a default model file is missing, otherwise **Model Settings** opens that workspace's models. |
 
-No calibrated confidence score is presented. Source time ranges, model/revision, options, stage elapsed time and warnings are preserved so reviewers can assess evidence.
+The header reads **Local backends ready** when nothing is blocked. Checks report only what ComfyUI and the folder actually show; they do not measure performance.
 
-Stem previews follow the reference clock and are not a sample-accurate DAW mixer. Exported stems retain their model sample alignment. Source/lyric timestamps are absolute; stem WAVs and MIDI begin at excerpt zero, with the original offset recorded in JSON.
+### Audio output node
 
-## Runtime and model acquisition
+ComfyUI's own **Save Audio** node encodes through PyAV and FFmpeg. On some PCs, such as those whose application control policy blocks FFmpeg's libraries, PyAV cannot load and every audio save fails. Sound Studio therefore installs a small node, **Save Audio WAV (Sound Studio)** (`SoundStudioSaveWAV`), that writes 16-bit PCM WAV with Python's standard library. When ComfyUI has it, Sound Studio uses it for every job, including imported workflows; otherwise it falls back to Save Audio.
 
-The core installer downloads checksum-pinned **uv 0.6.17**, uses its managed **CPython 3.11.12 x64**, and installs pinned direct dependencies in an app-owned virtual environment. Optional profiles have separate requirements. See [`scripts/analysis`](scripts/analysis) for exact dependency/model pins and license references.
+- **Start local ComfyUI** installs or updates it in `custom_nodes\sound_studio_nodes\__init__.py` of the ComfyUI folder before starting. The **Install** action does the same for a ComfyUI that is already running, and restarts it if Sound Studio started it.
+- The file begins with `# Managed by Sound Studio.`. Sound Studio never overwrites a file at that path without this marker, and it writes nothing else into the ComfyUI folder.
+- ComfyUI loads custom nodes only when it starts. A ComfyUI you started yourself needs a restart to pick it up.
 
-Downloads are explicit and use upstream package/model services. Audio and prompts are never uploaded. After acquisition, the worker uses local model paths, offline Hugging Face settings, and a process-level network denial guard. No cloud fallback is implemented. The worker communicates with Electron over stdin/stdout, not a listening server.
+### Let Sound Studio start ComfyUI
 
-Model Settings reports import/file readiness, the managed Python version and physical RAM. It does not claim measured GPU capacity or guaranteed inference success. CPU is the supported execution profile. Installation errors remain visible; cancellation stops the installation process tree and partial downloads are not treated as ready models.
+Sound Studio looks for ComfyUI in usual places such as `%LOCALAPPDATA%\ComfyUI` or your Desktop and fills in the **ComfyUI folder** field. When it finds one, choose **Start local ComfyUI**, either in the Backend connections dialog or on the empty preview canvas. That single click starts ComfyUI and connects to it.
 
-| Profile | Approximate acquisition / hardware considerations |
-|---|---|
-| Core | Roughly 250 MB plus caches; no model weights |
-| HTDemucs | CPU dependencies plus roughly 80 MB weights; CPU separation can be slow |
-| Whisper tiny / base | Roughly 75 / 145 MB weights plus CTranslate2/PyAV dependencies |
-| Basic Pitch | Runtime dependencies and a small note-transcription model |
-| Qwen2-Audio 7B | 16.8 GB weight files, plus dependencies/caches; CPU float32 inference needs substantially more RAM than the download size. Plan for about 40 GB **available** RAM. Installation is not implicit and analysis has a memory preflight. |
+It recognizes two layouts:
 
-The Qwen profile is implemented but real caption inference has **not been validated on the development machine**: it has 32 GiB physical RAM and insufficient free memory. Do not interpret profile presence or a successful missing-model test as proof that caption inference ran.
+- **Portable build:** the `ComfyUI_windows_portable` folder, with `python_embeded\python.exe` and `ComfyUI\main.py`. You can choose either that folder or its `ComfyUI` subfolder. Windows only.
+- **Source checkout:** a folder with `main.py` and a `venv` or `.venv` virtual environment.
 
-## Library, source integrity and recovery
+- If ComfyUI is somewhere else, choose the folder icon beside the field and pick it. Sound Studio remembers that choice.
+- Sound Studio runs that install's own Python with `main.py --listen 127.0.0.1 --port <port> --disable-auto-launch` (the port comes from the address), waits up to five minutes for it to answer, and then connects. The first start can be slow while ComfyUI loads custom nodes. If ComfyUI is already running at the address, Sound Studio connects to it instead of starting a second copy.
+- **Stop ComfyUI** ends that process. It is refused while a generation is running. Sound Studio also stops it when you quit. On the next launch, choose **Start local ComfyUI** again.
+- **Disconnect** stops checking a ComfyUI you started yourself, including on later launches, until you start or connect again.
+Sound Studio only stops a ComfyUI it started itself. Console output goes to `logs\comfyui.log` in the app profile; if it stops unexpectedly, choose **Show log** to find it. A folder you pick is stored in `comfyui-launcher.json` in the profile. The ComfyUI Desktop app (which listens on port 8000) cannot be started from here: start it yourself and connect to its address.
 
-Decomposer's **Analysis library** reopens imported sources and completed/failed jobs across restarts. It is not a general searchable asset manager. Originals, normalized playback WAVs, manifests, raw results, corrections and outputs live under the Electron user-data directory in `decomposer`. Runtime and models live separately in `decomposer-runtime`.
+## Models
 
-The renderer receives UUID asset/job IDs, not source filesystem paths. Media URLs resolve only registered reference/stem files. Reads and exports verify stored hashes. Removing the external original after import is safe because the library keeps its copy; deleting or replacing internal library files produces an actionable error. Reimport or rerun rather than rewriting the original record.
+Effects and Music each have their own generation model choice. Decomposer has separate local analysis profiles in the same Model Settings drawer; opening it never selects a generation model. The generation defaults are Stable Audio Open 1.0 for Effects and ACE-Step 1.5 Turbo for Music. Their settings show the current model, readiness and missing-file downloads. Other models, files, custom workflows and cloud partners remain under **Advanced**, initially collapsed unless customized, with limits, hardware guidance, license and source.
 
-Application shutdown cancels running work. On restart, queued/running records become interrupted failures, not successful analyses. Partial artifacts are retained but are not served or exported. Corrupt/unsupported manifests are reported and preserved. Back up these directories before manual recovery; do not delete the whole application profile to fix one record.
+### Download the default models
 
-## Drafts and Music handoff
+Sound Studio can download the local models below straight into the `models` folder of the ComfyUI install it starts. It offers this once, right after **Start local ComfyUI**, for the selected Effects and Music models. You can also choose **Download** in the readiness checks, in the Generate panel or in Model Settings.
 
-Effects/Music drafts and Decomposer goals remain independent. They persist under `sound-studio.workspace.v2`. Version 1 states (with or without the earlier Decomposer shell) migrate deliberately: all old draft values remain intact, and old overloaded loop/instrumental intentions become explicit stem/lyric options. The original v1 local-storage key remains untouched.
+- Nothing downloads without confirmation. A Windows dialog lists each file with its size, Hugging Face repository, license and URL, the folder it will be saved to, and notes that each file is checked against a published SHA-256 hash. Downloading means you accept those licenses.
+- Files come only from `huggingface.co` at a pinned revision, over HTTPS. Redirects are followed only to Hugging Face hosts.
+- Each file is written to a hidden `.part` file, checked for exact size and SHA-256, and only then saved under its final name. A failed, cancelled or mismatched download leaves nothing behind. An existing file is never overwritten; if a different file already has the name, the download stops and says so.
+- Sound Studio checks free disk space first and stops a download that stalls for two minutes.
+- Progress shows wherever the download button was. You can keep working or choose **Cancel**. When it finishes, Sound Studio refreshes the readiness checks.
+- Downloads need a ComfyUI install that Sound Studio found or that you chose with the folder button. For a ComfyUI you started elsewhere, follow **How to set up *model* manually** under Advanced.
 
-Unsupported/corrupt saved drafts are never overwritten. An error banner explains that subsequent edits are in memory only. If storage is full, keep the window open and copy important text.
+### On this device
 
-**Send saved reviewed brief to Music** uses saved reviewed analysis when available. Without completed analysis it is labeled **unanalysed intent**, never an analysed reference. The transfer dialog lets you append (preserving Music settings), explicitly replace, or cancel. There is no silent replacement or 4,000-character truncation. Music supports a 200,000-character draft; an oversized transfer is rejected with instructions to export the full analysis instead.
+These open-weight models run through ComfyUI's built-in nodes. Sound Studio can download each of them as described above. To download them yourself, use the linked source and accept any license terms there.
 
-Effects and Music generation, playback and export controls remain disabled. Their sample briefs do not produce audio.
+| Model | Workspaces | File | Notes |
+|---|---|---|---|
+| Stable Audio Open 1.0 | Effects, Music | `models/checkpoints/stable-audio-open-1.0.safetensors` from [Comfy-Org/stable-audio-open-1.0](https://huggingface.co/Comfy-Org/stable-audio-open-1.0) (4.5 GB) and `models/text_encoders/t5-base.safetensors` from [google-t5/t5-base](https://huggingface.co/google-t5/t5-base) (850 MB) | 1-47 s. Stability AI Community License (free below US$1M annual revenue); T5-base is Apache-2.0. About 6 GB VRAM suggested. |
+| ACE-Step 1.5 Turbo | Music | `models/checkpoints/ace_step_1.5_turbo_aio.safetensors` from [Comfy-Org/ACE-Step-1.5](https://huggingface.co/Comfy-Org/ACE-Step-1.5) (9.3 GB) | 10-600 s, lyrics, tempo and key. Apache-2.0 as published by Comfy-Org. About 12 GB VRAM suggested. |
+| ACE-Step v1 3.5B | Music | `models/checkpoints/ace_step_v1_3.5b.safetensors` from [Comfy-Org/ACE-Step_ComfyUI_repackaged](https://huggingface.co/Comfy-Org/ACE-Step_ComfyUI_repackaged) (7.2 GB) | 5-240 s, lyrics. Apache-2.0. About 10 GB VRAM suggested. |
 
-## Architecture and desktop boundaries
+Sound Studio picks a matching checkpoint automatically, or you can choose a specific file. The file list puts the files that match the model first. If a saved choice doesn't look like the selected model but a matching file is installed, the model shows **NEEDS SETUP** and offers **Use *matching file* instead**, which switches back to Automatic in one click. The Generate panel only flags backend checks for the workspace you are in. Hardware fit compares the suggested VRAM with what ComfyUI reports. It is guidance, not a measurement of real performance.
+
+### Cloud partner models (opt-in)
+
+[Mirelo SFX 2.0](https://docs.comfy.org/built-in-nodes/MireloTextToSFX) and [ByteDance Seed Audio 1.0](https://docs.comfy.org/built-in-nodes/ByteDanceSeedAudio) are hosted models that ComfyUI reaches through its partner nodes. **Your prompt and settings leave this device** and go to Comfy.org and the provider, and the job is charged to your Comfy.org credits.
+
+To use them:
+
+1. Update ComfyUI to a build that includes the partner node.
+2. Create an API key at [platform.comfy.org](https://platform.comfy.org) and add credits.
+3. In Model Settings, store the key under **Cloud partner models**, then tick **Allow cloud partner models**.
+
+Before you generate, the action note names the provider and estimates the cost from ComfyUI's listed price. Prices may change, and your Comfy.org account is the authority.
+
+The key is encrypted with the operating system's secure storage (DPAPI on Windows) in `cloud-access.json` in the app profile. It is never written in plain text. If the OS cannot encrypt, the key is not stored. The key never reaches the renderer, and it is attached only to jobs that use partner nodes. **Remove key** deletes it and turns cloud models off.
+
+Seed Audio has no length control, so the requested duration is written into the prompt and the result may be longer or shorter. Its maximum seed is 2,147,483,647.
+
+### Your ComfyUI workflow
+
+Use **Custom ComfyUI workflow** for models that ComfyUI runs through custom nodes, such as **MusicGen** or **DiffRhythm 2**, or for any audio graph you have built.
+
+1. Install the custom nodes and models, and check that the workflow runs in ComfyUI.
+2. Replace hard-coded inputs with placeholders. Use `{{prompt}}` or `{{tags}}`, plus any of `{{negative}}`, `{{lyrics}}`, `{{seconds}}`, `{{seed}}`, `{{bpm}}`, `{{key}}` and `{{title}}`.
+3. End the graph with exactly one **Save Audio** node (or **Save Audio WAV (Sound Studio)**), then choose **Workflow > Export (API)**. When ComfyUI has the Sound Studio node, Sound Studio swaps it in for Save Audio.
+4. In Model Settings choose **Import workflow JSON**.
+
+When an input's whole value is a placeholder, such as `"{{seed}}"`, it is replaced with the typed value, so numbers stay numbers. Placeholders inside longer text are replaced as text. Sound Studio checks that ComfyUI has every node the workflow uses. It warns, and requires the cloud opt-in, if the workflow contains partner nodes. `{{bpm}}` and `{{key}}` are music-only.
+
+A MusicGen-style example:
+
+```json
+{
+  "1": { "class_type": "MusicgenGenerate", "inputs": { "prompt": "{{prompt}}", "duration": "{{seconds}}", "seed": "{{seed}}" } },
+  "2": { "class_type": "SaveAudio", "inputs": { "audio": ["1", 0], "filename_prefix": "musicgen" } }
+}
+```
+
+Node and input names depend on the custom node pack you install. Export your own working graph rather than copying this example.
+
+## Workspaces and workflow
+
+### Effects
+
+Write a take name and description, then choose a category, duration, optional seed and seamless-loop intent. Seamless loop asks the model for a loopable sound and plays the take on repeat; seamlessness is not guaranteed.
+
+### Music
+
+Write a musical brief and choose genre, mood, duration and tempo. Choose a key when the model supports it. Clear **Instrumental only** to add lyrics with section tags such as `[verse]` and `[chorus]`. Models that cannot sing say so.
+
+### Decomposer
+
+Install the local analysis runtime in **Model Settings > Decomposer**, import a recording you may process, choose an excerpt and select optional stems, lyrics, notes or audio descriptions. DSP timing/harmony analysis is always included. Model downloads require explicit confirmation; unavailable stages fail rather than returning fake findings.
+
+Review the original mix, actual stems, lyric timings and estimates, then save corrections separately from raw machine output. The [Decomposer guide](docs/DECOMPOSER.md) covers supported formats, runtime/model limits, export formats, uncertainty and real-output validation. Descriptions from Qwen2-Audio remain unverified on this under-resourced development host.
+
+### Steps
+
+1. **Describe:** edit your brief or load a sample brief. Sample briefs are text only; loading one never generates audio.
+2. **Generate:** check the brief and the model summary, then generate. The panel lists anything that must be fixed first. While a job runs it shows queued or generating progress and a **Cancel** button.
+3. **Review & refine:** play the selected take, seek, and choose other takes under **Recent takes**.
+4. **Export:** save the selected take.
+
+Navigating to a step never marks work complete. Each workspace runs one job at a time. Jobs live in the running app; if you close it, ComfyUI may still finish the job, but the result is not collected as a take.
+
+Decomposer uses **Import & plan**, **Analyse**, **Review & refine** and **Export**. Navigation never runs a job. **Send saved reviewed brief to Music** uses saved reviewed evidence; without an analysis it is clearly labeled **unanalysed intent**. Append/replace confirmation protects the existing Music draft. Large briefs are retained without truncation, but must be deliberately shortened to the generation model's limits before generating. All workspaces keep independent drafts and steps.
+
+## Takes, export and provenance
+
+A take is saved only after ComfyUI reports success and the returned file passes validation: a readable WAV or FLAC with audio data, under 1 GB. The waveform is drawn from the decoded audio, and a take that appears silent is flagged.
+
+Takes are stored in the app profile under `takes/`. Each has an audio file and a JSON record of the request, model, seed, workflow and audio details. On Windows the profile is `%APPDATA%\Sound Studio`. The library lists takes from both workspaces. Records it cannot read are counted and left untouched. Deleting asks for confirmation and removes the take's files.
+
+**Export** copies the original audio file unchanged and writes `<name>.provenance.json` beside it. That file records the prompt, model and provider, parameters, seed, the exact ComfyUI workflow and the creation time.
+
+## Storage and privacy
+
+- **Drafts:** `sound-studio.workspace.v3`, schema version 3. Migrations preserve generation lyrics/key and Decomposer stage selections from both earlier v2 shapes. The v2 and v1 keys are only read when v3 is absent, in that order, and are left intact. Unsupported/corrupt states are not overwritten.
+- **Connection and model choices:** `sound-studio.backend.v1`.
+- **Chosen ComfyUI folder:** `comfyui-launcher.json` in the profile, with the ComfyUI console log in `logs\comfyui.log`.
+- **Cloud key:** encrypted in the profile, as described above.
+- **Takes:** the profile's `takes` folder.
+- **Analyses:** the profile's `decomposer` folder; managed analysis runtime/models in `decomposer-runtime`. Raw findings and user corrections remain separate.
+
+Drafts and choices are unencrypted convenience storage, not a portable project format or backup. Do not put credentials in prompts.
+
+Model/runtime acquisition contacts upstream download services only after confirmation. Decomposer inference is network-blocked after acquisition and never uses cloud partners. Generation cloud partners remain separately opt-in. There is no telemetry.
+
+If saved data cannot be read or has an unknown format, an error banner appears and the stored copy is preserved. New edits stay in memory and do not overwrite it. If writes fail, the app says edits are not saved. To recover, first copy any needed text. Then open developer tools with Ctrl+Shift+I, inspect Application > Local Storage, back up or remove only the affected key, and reload.
+
+## Architecture
 
 | Location | Responsibility |
 |---|---|
-| `src/main` | Lifecycle, trusted-frame IPC, safe dialogs, opaque asset registry, range media streaming, atomic durable records, job queue, runtime acquisition and non-overwriting exports |
-| `src/preload` | Fixed typed methods only; no arbitrary filesystem, shell, URL or process APIs |
-| `src/renderer` | Workflow UI, audio review, correction editing, model setup and draft persistence |
-| `src/shared` | Strict analysis/runtime/result schemas and versioned draft migration |
-| `scripts/analysis` | Local decoder, DSP and optional ML adapters; model acquisition only in the explicit acquisition command |
-| `tests` | Draft/schema, store, exports, cancellation, process error and recovery contracts |
+| `src/main` | Lifecycle and window security. Also: the ComfyUI client (`comfyui.ts`), job monitor (`generation.ts`), take store (`takes.ts`), encrypted cloud access (`cloud.ts`), the ComfyUI launcher (`launcher.ts`, `comfyInstall.ts`), the WAV output node installer (`outputNode.ts`), the model downloader (`modelDownload.ts`) and validated IPC handlers (`ipc.ts`). |
+| `src/preload` | A narrow, typed bridge (`window.soundStudio`). It has no generic IPC, filesystem or shell access. |
+| `src/renderer` | React workspaces, Backend connections, Model Settings, the take player, backend state, dialogs and draft storage. |
+| `src/shared` | Draft schema and migration, model profiles, readiness and backend checks, request validation, workflow builders and audio inspection. |
+| `tests` | Unit tests for drafts, generation contracts and audio parsing. |
+| `scripts` | The Electron smoke test, a mock ComfyUI test fixture and screenshot capture. |
 
-Context isolation, renderer sandboxing, web security and disabled Node integration remain enabled. New windows, webviews, renderer navigation and permission requests are denied. CSP allows only app resources, the registered audio scheme, and development loopback connections. Main-process APIs validate all inputs and reject untrusted frames; the native file chooser is the only import path.
+Electron uses context isolation, sandboxing and disabled Node integration. Window-open requests, navigation, webviews and permission requests are denied. The content security policy limits the renderer to app resources, blob audio and the registered, validated `soundstudio:` media scheme.
+
+Every IPC call is validated again in the main process: loopback endpoints, generation requests, custom workflows and take IDs. The main process builds the ComfyUI graph, sends it, follows progress over WebSocket and history polling, and downloads and validates the output. The renderer never receives the API key or arbitrary file paths.
+
+The launcher accepts a ComfyUI folder only from the main-process folder picker or its own detection, never from the renderer. It runs only a recognized layout's own Python, without a shell, with fixed arguments that bind ComfyUI to loopback. It never stops a process it did not start. The only file it writes into the ComfyUI folder is the marked output node, resolved inside that folder's `custom_nodes` and written atomically.
+
+The model downloader accepts only catalog IDs from the renderer, never URLs or paths. The main process resolves the target inside the launcher's `models` folder, asks for confirmation in a native dialog, and fetches the pinned Hugging Face URL itself, as described in [Download the default models](#download-the-default-models).
 
 ## Development and validation
 
 ```powershell
 npm test
 npm run typecheck
+npm run build
 npm run test:desktop
 ```
 
-Desktop smoke uses the real Electron app and isolated temporary profiles. Without a local runtime it covers the missing-runtime boundary and shell workflows. To include real decoding/DSP/playback/review/export:
+`npm test` covers drafts and migration, model profiles, the model download catalog and downloader (host allowlist, redirects, size and SHA-256 checks, no overwrites, confirmation), ComfyUI install detection and launch arguments, output node installation, readiness checks, the loopback endpoint policy, request validation, workflow builders and output node selection, custom workflow placeholders, readiness and cloud gating, history interpretation and WAV/FLAC parsing.
 
-```powershell
-npm run setup:analysis -- --root .runtime --profile core
-npm run test:desktop
-```
+`npm run test:desktop` builds and launches the real Electron app with an isolated temporary profile. It runs against `scripts/mock-comfyui.mjs`, a test fixture that speaks the ComfyUI HTTP and WebSocket API and returns a synthesized test tone. The smoke test covers:
 
-This explicitly acquires an isolated test runtime inside the ignored `.runtime` directory. `SOUND_STUDIO_TEST_RUNTIME` may point to a different dedicated test runtime. The smoke profile copies its virtual environment into a temporary directory, never the user's library or model weights. Synthetic audio in this smoke is valid for DSP/contracts only; it is **not evidence of successful stem, lyric or caption inference**.
+- Connection policy, the first-run check and the readiness checks.
+- One-click start from the canvas and dialog, output node installation, stop, and stop-on-quit for a fake ComfyUI install (`scripts/fake-comfyui-install.mjs`), which needs Python and is skipped without it. With that install, it also checks that the download offer appears and that declining it writes nothing.
+- Local, failed and cancelled jobs.
+- Cloud opt-in and API-key handling.
+- ACE-Step and custom workflow graphs.
+- Decomposer/generation navigation, isolated settings and explicit append/replace handoff without truncation.
+- Playback, export with provenance and library delete.
+- Relaunch persistence, corrupt storage and the minimum window size.
 
-Optional profiles can be installed into the same dedicated test runtime by changing `--profile` to `stems`, `lyrics-tiny`, `lyrics-base`, `notes` or `captions`. Do not install the large caption profile on an under-resourced machine.
+The same command also runs `scripts/decomposer-smoke.mjs`. With the explicitly acquired core runtime in `.runtime`, it exercises real decoding/DSP, playback, corrections, exports, cancellation and missing models. Without that runtime it reports the unrun DSP scenario, rather than claiming success. See the [Decomposer validation instructions](docs/DECOMPOSER.md#development-and-validation).
+
+**Synthetic audio and mock ComfyUI prove contracts, not ML output quality.** Check real generation against your own ComfyUI. Separate real Decomposer model evidence and attribution are documented in its guide.
+
+Capture the actual app for documentation:
 
 ```powershell
 npm run screenshots
 ```
 
-Captures are actual app windows. `decomposer-workspace.png` uses a clearly named deterministic chord fixture for DSP review, not a generated song or model benchmark. The README's `decomposer-stems.png` shows real HTDemucs outputs.
-
-### Real-model checks and attribution
-
-The lawful validation recording is **Let's Go Fishin' by Karissa Hobbs**, [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/), from the [Free Music Archive](https://freemusicarchive.org/music/Karissa_Hobbs/Age_of_Flowers/09_Lets_Go_Fishin) through [librosa's example collection and license notice](https://librosa.org/data/audio/Karissa_Hobbs_-_Lets_Go_Fishin.txt). Its source SHA-256 is `27b3667c396c1831511aa3c415fcf582b6e8be560cafb844c5b67b76b72c1cb3`. Neither the recording nor generated artifacts/model weights are committed.
-
-To reproduce with your own lawful recording and explicitly installed profiles:
-
-```powershell
-node --import tsx scripts\model-smoke.ts --runtime .runtime --source "C:\Audio\reference.ogg" --start 20 --end 40 --stems --lyrics --words --notes
-node scripts\stem-playback-smoke.mjs .runtime\model-evidence
-.\.runtime\venv\Scripts\python.exe -m unittest discover -s scripts\analysis -p test_worker.py
-```
-
-The model check inspects published artifacts, timestamps and nonempty transcripts; it does not certify separation quality, lyric accuracy or correct notation. `--lyrics-base` selects the base rather than tiny transcription model. The stem desktop check opens real outputs and exercises synchronized playback, seeking, mute and solo.
-
-On the 20-40 second validation excerpt, the combined CPU run produced four 20-second stems, 36 Whisper-tiny word entries and a parsed MIDI containing 241 notes within excerpt bounds. WAVs, MIDI, JSON, Markdown, LRC and SRT were inspected, and the actual Electron app played the stems. A separate Whisper-base run also executed, but produced 145 zero-duration word entries with explicit warnings; this is evidence of imperfect singing alignment, **not an accuracy success**. Caption inference remains unverified for the resource reason above.
-
-On the development network, `files.pythonhosted.org` failed TLS handshakes. Dependencies for validation were resolved from a public PyPI mirror, with **every resolved artifact hash checked against official PyPI/PyTorch metadata before installation**, then installed with required hashes. Certificate validation remained enabled. The app's production defaults remain official upstream hosts; no silent mirror or insecure fallback was added.
+This runs the same checks and captures actual app windows in `docs/screenshots`. Generation captures happen before connecting to mock ComfyUI. Decomposer's DSP capture uses a clearly named synthetic fixture, not model output; `stem-playback-smoke.mjs` captures actual separated stems. Inspect captures and retain attribution; never use fixtures as ML evidence.
 
 ## Troubleshooting
 
 | Symptom | Action |
 |---|---|
-| Import reports missing runtime | Install Core in Decomposer Model Settings. The web preview has no desktop API. |
-| Dependency download fails | Check HTTPS access to PyPI/files.pythonhosted.org and available disk space. Keep certificate validation enabled; do not use insecure TLS switches. |
-| Selected stage says model is missing | Explicitly install that profile. A failed stage fails the job rather than returning fake output. |
-| Caption memory preflight fails | Use a machine with enough available RAM, or disable captions and continue with other stages. No cloud fallback exists. |
-| Decoder rejects a file | Use a supported, valid local audio file. Renaming a file extension is not conversion. |
-| Stem/audio playback fails | Reopen the analysis, inspect integrity errors, then reimport/rerun if internal files are missing. |
-| Corrections cannot save | Check timestamp ordering/bounds and whether another editor updated the revision. Keep a copy of unsaved text. |
-| Export fails | Choose a writable directory with enough disk space. Existing exports are not overwritten. |
-| Generate is disabled | Expected: music/sound generation is still a shell. |
-| Electron binary is missing | Run `npm install` and review any blocked required package lifecycle scripts under your organization's policy. |
+| "ComfyUI is not reachable" | Start ComfyUI, check the port in its console and choose **Refresh** in Backend connections. |
+| "main.py was not found" or "not its Python environment" | Choose the portable build's root folder, or a source checkout with a `venv` or `.venv`. For the ComfyUI Desktop app, start it yourself and connect. |
+| ComfyUI stops or never answers after **Start local ComfyUI** | Choose **Show log** and read the end of `comfyui.log`. Common causes are a busy port, a missing Python package or a failing custom node. |
+| Jobs fail in Save Audio or Preview Audio, mentioning PyAV, `av` or FFmpeg | ComfyUI's audio encoder cannot load on this PC. Install the Sound Studio output node from the **Audio output node** check, or choose **Start local ComfyUI**, which installs it, and restart ComfyUI. |
+| "...was not created by Sound Studio" | A different file sits at `custom_nodes\sound_studio_nodes\__init__.py`. Move it away if you do not need it, then choose **Install** again. |
+| "Only ComfyUI running on this device..." | Remote servers are not supported. Run ComfyUI locally on loopback. |
+| A model shows **NEEDS SETUP** | Follow the listed issues. For a missing default model, choose **Download**. Missing nodes need a newer ComfyUI or custom nodes. Other missing files need to go in the named `models` folder; then choose **Refresh**, restarting ComfyUI if needed. |
+| A model download fails | The message says why: no network, too little disk space, a stalled connection, or a size or SHA-256 mismatch. Nothing partial is kept, so choose **Download** again. If "a different file already exists", move that file away first. |
+| "...does not look like the *model* checkpoint" | A file for a different model is selected. In Model Settings, choose **Use *matching file* instead** or pick **Automatic**. |
+| Cloud models stay disabled | Store a Comfy.org API key first, then tick **Allow cloud partner models**. If encryption is unavailable, the key cannot be stored. |
+| ComfyUI rejects the workflow | The message lists failing nodes and inputs. Check model files and custom nodes in ComfyUI itself. |
+| A job fails with an out-of-memory error | Choose a shorter duration or a smaller model, or close other GPU applications. |
+| An imported workflow is rejected | Use **Export (API)**, not the regular save. Include `{{prompt}}` or `{{tags}}` and exactly one Save Audio node. |
+| A take is flagged as silent | The file is kept. Check the model and prompt in ComfyUI. |
+| The launcher reports a missing build | Run `npm run build`, then launch again. |
+| Desktop smoke cannot launch a window | Run it in an interactive graphical session. |
 
-The workflow-first design follows [Character Studio](https://github.com/rwrife/CharacterStudio): text-only tabs, one contextual settings panel, a connected chevron stepper and a large review surface. Keyboard navigation, modal focus containment, focus restoration, reduced motion and a 960-by-700 desktop minimum remain part of the design.
+## Design reference
+
+The layout takes its direction from [rwrife/CharacterStudio](https://github.com/rwrife/CharacterStudio), inspected at commit `c4497c1c7f148786c102d7fb5e6998f2c62b4ff7`: header workspace tabs, contextual left settings, a connected chevron stepper and a large central working surface. Documentation follows its concise README, detailed guide and agent guidance split.
