@@ -1,0 +1,32 @@
+import { useEffect, useState } from 'react'
+import { createInitialState, parseStudioState } from '../shared/workspace'
+
+export const storageKey = 'sound-studio.workspace.v1'
+
+export function useStudioState() {
+  const [loaded] = useState(() => {
+    try {
+      const saved = localStorage.getItem(storageKey)
+      return { state: saved ? parseStudioState(saved) : createInitialState(), error: '' }
+    } catch (error) {
+      return {
+        state: createInitialState(),
+        error: `Could not load your saved draft. ${error instanceof Error ? error.message : String(error)} Your stored copy has not been replaced.`
+      }
+    }
+  })
+  const [state, setState] = useState(loaded.state)
+  const [storageError, setStorageError] = useState(loaded.error)
+
+  useEffect(() => {
+    if (loaded.error) return
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(state))
+      setStorageError('')
+    } catch (error) {
+      setStorageError(`Draft changes could not be saved. Keep this window open to retain your edits. ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }, [state, loaded.error])
+
+  return { state, setState, storageError }
+}
