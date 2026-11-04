@@ -7,7 +7,6 @@ import {
 import type { Workspace } from '../shared/workspace'
 import { ModelDownloadPanel } from './ModelDownloadPanel'
 import type { Backend } from './useBackend'
-import { YourComputer } from './YourComputer'
 
 const defaults = createDefaultBackendSettings()
 
@@ -19,7 +18,7 @@ const groups: ReadonlyArray<{ execution: Execution; title: string; detail: strin
 
 export const executionBadge = (execution: Execution) => execution === 'local' ? 'LOCAL' : execution === 'cloud' ? 'CLOUD' : 'WORKFLOW'
 
-export function ModelSettings({ backend, workspace, onWorkspace }: { backend: Backend; workspace: Workspace; onWorkspace: (workspace: Workspace) => void }) {
+export function ModelSettings({ backend, workspace }: { backend: Backend; workspace: Workspace }) {
   const choice = backend.settings.models[workspace]
   const profile = modelProfiles[choice.profileId]
   const readiness = backend.readiness[workspace]
@@ -31,15 +30,6 @@ export function ModelSettings({ backend, workspace, onWorkspace }: { backend: Ba
 
   return <>
     <p className="dialog-intro model-intro">One recommended local setup per task. More choices under Advanced. Changes save automatically on this device.</p>
-    <YourComputer backend={backend} />
-    <label className="field-label" htmlFor="model-task">Task</label>
-    <select id="model-task" value={workspace} onChange={event => {
-      const task = event.target.value
-      if (task === 'effects' || task === 'music') onWorkspace(task)
-    }}>
-      <option value="effects">Effects</option>
-      <option value="music">Music</option>
-    </select>
     {backend.settingsError && <p className="warning-text" role="alert"><AlertTriangle size={14} /> {backend.settingsError}</p>}
 
     <div className="model-card">

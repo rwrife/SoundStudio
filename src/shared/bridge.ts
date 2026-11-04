@@ -3,6 +3,7 @@ import type { BackendStatus, CloudConfiguration, CloudStatus, ComfyWorkflow, Gen
 import type { LauncherStatus } from './launcher'
 import type { DownloadStatus } from './modelDownloads'
 import type { ComputerSummary } from './hardware'
+import type { DecomposerApi } from './decomposer'
 
 export interface TakeList { takes: TakeRecord[]; unreadable: number }
 export interface TakeAudio { bytes: Uint8Array; mimeType: string; info: AudioInfo }
@@ -11,6 +12,7 @@ export interface TakeAudio { bytes: Uint8Array; mimeType: string; info: AudioInf
 export interface SoundStudioBridge {
   platform: string
   getComputerSummary(): Promise<Result<ComputerSummary>>
+  decomposer: DecomposerApi
   checkBackend(endpoint: string): Promise<Result<BackendStatus>>
   getLauncher(): Promise<Result<LauncherStatus>>
   /** Opens a native folder picker in the main process; the renderer never supplies a path. */

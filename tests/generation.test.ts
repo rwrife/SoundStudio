@@ -187,6 +187,14 @@ test('requests are validated against model limits in the renderer and again at t
     assert.throws(() => validateGenerationRequest({ ...valid, ...patch }), /Invalid generation request/, JSON.stringify(patch))
   }
   const music = request('music', 'ace-step-1.5-turbo')
+  const analysisBrief = 'Reviewed evidence '.repeat(1000)
+  const retainedDraft = { ...createInitialState().drafts.music, prompt: analysisBrief }
+  const oversized = buildGenerationRequest('music', retainedDraft, choice('ace-step-1.5-turbo'), { checkpoint: 'a', textEncoder: null })
+  assert.equal(oversized.request, null, 'Long reviewed evidence is saved but cannot bypass model limits')
+  assert.match(oversized.problems.join(), /characters/)
+  assert.equal(retainedDraft.prompt, analysisBrief, 'Validation never truncates the saved handoff')
+  assert.throws(() => validateGenerationRequest({ ...music, prompt: analysisBrief }), /Invalid generation request/)
+  assert.throws(() => validateGenerationRequest({ ...music, workspace: 'decomposer' }), /Invalid generation request/)
   assert.throws(() => validateGenerationRequest({ ...music, instrumental: false, lyrics: '' }), /lyrics are required/)
   assert.throws(() => validateGenerationRequest({ ...music, tempo: null }), /tempo/)
 })

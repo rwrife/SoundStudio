@@ -9,6 +9,17 @@ const invoke = (channel: string, ...args: unknown[]) => ipcRenderer.invoke(chann
 const bridge: SoundStudioBridge = {
   platform: process.platform,
   getComputerSummary: () => invoke(channels.computerSummary),
+  decomposer: Object.freeze({
+    library: () => invoke('decomposer:library'),
+    importAudio: () => invoke('decomposer:import'),
+    start: (input: Parameters<SoundStudioBridge['decomposer']['start']>[0]) => invoke('decomposer:start', input),
+    cancel: (id: string) => invoke('decomposer:cancel', id),
+    review: (input: Parameters<SoundStudioBridge['decomposer']['review']>[0]) => invoke('decomposer:review', input),
+    export: (input: Parameters<SoundStudioBridge['decomposer']['export']>[0]) => invoke('decomposer:export', input),
+    runtime: () => invoke('decomposer:runtime'),
+    install: (profile: Parameters<SoundStudioBridge['decomposer']['install']>[0]) => invoke('decomposer:install', profile),
+    cancelInstall: () => invoke('decomposer:cancel-install')
+  }),
   checkBackend: endpoint => invoke(channels.checkBackend, endpoint),
   getLauncher: () => invoke(channels.launcherStatus),
   chooseComfyFolder: () => invoke(channels.launcherFolder),

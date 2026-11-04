@@ -1,0 +1,11 @@
+# Python 3.11.12, Windows x64 (including Windows ARM64 x64 emulation).
+# Direct/native dependencies are pinned; this is not a transitive, hash-locked lockfile.
+av==14.2.0
+numpy==1.26.4
+scipy==1.15.2
+librosa==0.10.2.post1
+soundfile==0.13.1
+numba==0.61.0
+llvmlite==0.44.0
+scikit-learn==1.6.1
+soxr==0.5.0.post1

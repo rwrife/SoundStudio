@@ -4,7 +4,9 @@
 
 Sound Studio is a local-first AI sound effects and music creation studio. Help game developers and creators describe, generate, review and export audio while keeping creative decisions and user assets under their control.
 
-Sound Studio generates audio by driving the user's own [ComfyUI](https://github.com/comfyanonymous/ComfyUI) on loopback. It can start and stop that ComfyUI install for the user. Model profiles come in three kinds: open-weight models on this device (Stable Audio Open, ACE-Step 1.5 and v1), opt-in cloud partner nodes (Mirelo SFX 2.0, Seed Audio) and imported ComfyUI API workflows (for example MusicGen or DiffRhythm 2). Takes are validated, played, kept in a local library and exported with provenance. Model downloads, audio import and editing, project files and an MCP server are future capabilities. Do not present them as shipped.
+Sound Studio generates audio by driving the user's own [ComfyUI](https://github.com/comfyanonymous/ComfyUI) on loopback. It can start/stop that install and explicitly download default models. Profiles include local models, opt-in cloud partner nodes and imported workflows. Takes are validated, played, saved and exported with provenance.
+
+Decomposer independently imports and analyses existing audio using a managed Windows x64 CPU runtime, with DSP, optional HTDemucs/Whisper/Basic Pitch, editable review, durable storage and exports. The Qwen2-Audio caption path is implemented but real inference remains resource-blocked/unverified; never claim it has been validated. Analysis never uploads audio or uses cloud fallback. General-purpose editing, project files and an MCP server remain future work.
 
 ## Repository layout
 
@@ -36,9 +38,9 @@ Development and the smoke test need no models or GPU; the launcher smoke check u
 - Start ComfyUI only from a folder chosen in the main-process picker or found by detection, only for a recognized layout, with its own Python, no shell and fixed loopback arguments. Never stop a process Sound Studio did not start.
 - The only file Sound Studio writes into a ComfyUI folder is its marked WAV output node in `custom_nodes\sound_studio_nodes`. Never overwrite a file there that lacks the `# Managed by Sound Studio.` marker.
 - Reuse shared types, defaults, validation, components and semantic CSS tokens. Keep the implementation simple and avoid parallel workflow or settings systems.
-- Preserve independent Effects and Music drafts across navigation and settings. Version persisted schemas and migrate deliberately; do not silently overwrite malformed or unsupported saved data.
+- Preserve independent Effects, Music and Decomposer drafts, including generation lyrics/key and analysis selections. Unified schema v3 migrates both older v2 shapes without overwriting legacy keys or malformed/unsupported data.
 - Display actionable errors. Do not disguise failed or unavailable inference as completed audio, generate fake library entries, or substitute analytic fixtures for AI output.
-- Keep original assets and completed outputs intact. Future exports must use actual validated audio and retain the prompt, model, parameters and source provenance.
+- Keep original assets, raw machine results and reviewed corrections separate. Exports must use actual validated artifacts and retain source hashes, model/revision/options and timings. Music handoff requires append/replace approval and never silently truncates.
 - Keep models, user audio, generated output, credentials, logs, build artifacts and local environments out of Git.
 - Do not add another backend, provider, model installer, packaging system or agent-control server without a task that calls for it.
 
@@ -58,7 +60,7 @@ Development and the smoke test need no models or GPU; the launcher smoke check u
 
 ## AI architecture
 
-Model profiles carry validated input limits, hardware-fit guidance, required nodes and files, and readiness checks against the connected ComfyUI. Cloud partner models need explicit opt-in and an encrypted key. Keep service lifecycle, inference jobs and file access in the main process. Model downloads, if added, need explicit user controls.
+Generation profiles carry input limits and readiness checks against ComfyUI. Cloud partners need explicit opt-in and an encrypted key. Analysis profiles use a separate managed runtime and explicit downloads. Keep service lifecycle, jobs and file access in main. Import accepts native-picker files only; renderer code receives opaque IDs, not arbitrary filesystem access.
 
 Track queued, running, failed, cancelled and completed states honestly. A successful request is not a successful output: inspect actual audio before publishing a completed take. Do not claim seamless loops, quality guarantees or model interoperability without evidence.
 
@@ -79,7 +81,7 @@ For UI, persistence, lifecycle and bridge changes:
 npm run test:desktop
 ```
 
-The desktop smoke uses the actual Electron app with an isolated temporary profile, a mock ComfyUI that returns a test tone and a fake ComfyUI install. It proves job handling and the launcher, not model output quality. Keep tests aligned with real feature claims.
+The desktop command runs generation and Decomposer smoke checks in isolated profiles. Mock ComfyUI and synthetic DSP fixtures prove contracts, not ML success. See `docs/DECOMPOSER.md` for explicit runtime setup and lawful real-model checks; never download huge models implicitly. Preserve generation regressions when changing the shared bridge, settings or schema.
 
 ## README maintenance
 

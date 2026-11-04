@@ -1,3 +1,5 @@
 * text=auto
 *.png binary
 *.svg text eol=lf
+# Preserve checksum-pinned bytes and the space on blank diff-context lines.
+scripts/analysis/native/llama-b12064-omni.patch -text whitespace=-blank-at-eol

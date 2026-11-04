@@ -1,6 +1,9 @@
+import { z } from 'zod'
+import { captionModelSchema, defaultOptions, idSchema, stemSchema } from './decomposer'
+
 /** Workspaces that generate audio. Generation, model, readiness, download and IPC code use only these. */
 export type Workspace = 'effects' | 'music'
-/** Every header tab, including Decomposer, a planning placeholder with no generation path. */
+/** Decomposer analyses existing recordings and never reaches generation paths. */
 export type StudioWorkspace = Workspace | 'decomposer'
 export type Step = 'brief' | 'generate' | 'review' | 'export'
 
@@ -44,19 +47,30 @@ export interface Draft {
   step: Step
 }
 
-export const studioStateVersion = 2
+export const studioStateVersion = 4
 
 export interface StudioState {
   version: typeof studioStateVersion
   workspace: StudioWorkspace
   drafts: Record<StudioWorkspace, Draft>
+  decomposition: DecompositionDraft
 }
+
+const legacyDecompositionDraftSchema = z.object({
+  assetId: idSchema.nullable(), analysisId: idSchema.nullable(),
+  start: z.number().finite().min(0).max(1800), end: z.number().finite().min(0).max(1800),
+  stems: z.array(stemSchema).max(4),
+  lyrics: z.enum(['none', 'tiny', 'base']), wordTimestamps: z.boolean(), notes: z.boolean(), captions: z.boolean()
+}).strict()
+const decompositionDraftSchema = legacyDecompositionDraftSchema.extend({ captionModel: captionModelSchema })
+export type DecompositionDraft = z.infer<typeof decompositionDraftSchema>
 
 export function createInitialState(): StudioState {
   const common = { title: '', prompt: '', mood: 'Atmospheric', tempo: '90', seed: '', lyrics: '', musicKey: 'C major', loop: false, instrumental: true, step: 'brief' as const }
   return {
     version: studioStateVersion,
     workspace: 'effects',
+    decomposition: { assetId: null, analysisId: null, ...defaultOptions },
     drafts: {
       effects: { ...common, category: 'General', duration: '5' },
       music: { ...common, category: 'Cinematic', duration: '30' },
@@ -84,13 +98,13 @@ export const examples: Record<StudioWorkspace, ReadonlyArray<{ title: string; de
 }
 
 export function buildVariationBrief(draft: Draft): { title: string; prompt: string; tempo: string; mood: string; duration: string; instrumental: boolean } {
-  const stemMode = draft.loop ? 'Preserve separated stem roles (drums, bass, accompaniment).' : 'Focus on full-mix arrangement.'
-  const vocalMode = draft.instrumental ? 'Instrumental variation without vocals.' : 'Include vocal phrasing and lyric structure.'
+  const stemMode = 'No audio has been analysed; instrument and arrangement requests below are intentions only.'
+  const vocalMode = draft.instrumental ? 'Requested direction: instrumental.' : 'Requested direction: consider vocal phrasing and lyric structure.'
   const header = `${draft.category} (${draft.mood}, ${draft.tempo || '90'} BPM)`
-  const body = draft.prompt.trim() || 'Create a musical variation inspired by the analyzed reference track.'
-  const composedPrompt = `${header}: ${body}\n\n${stemMode} ${vocalMode}`.slice(0, 4000)
+  const body = draft.prompt || 'No analysis goal supplied.'
+  const composedPrompt = `Unanalysed intent\n${header}: ${body}\n\n${stemMode} ${vocalMode}`
   return {
-    title: draft.title ? `${draft.title} (variation)`.slice(0, 120) : '',
+    title: draft.title,
     prompt: composedPrompt,
     tempo: draft.tempo,
     mood: draft.mood,
@@ -107,7 +121,7 @@ function isDraft(value: unknown, workspace: StudioWorkspace): value is Draft {
   if (!isRecord(value)) return false
   const strings = ['title', 'prompt', 'category', 'mood', 'duration', 'tempo', 'seed', 'lyrics'] as const
   const categories = workspace === 'effects' ? effectCategories : workspace === 'music' ? musicGenres : decomposerFocuses
-  return strings.every(key => typeof value[key] === 'string' && value[key].length <= 4000)
+  return strings.every(key => typeof value[key] === 'string' && value[key].length <= (key === 'prompt' && workspace === 'music' ? 200000 : 4000))
     && typeof value.title === 'string' && value.title.length <= 120
     && typeof value.category === 'string'
     && [...categories].some(category => category === value.category)
@@ -118,23 +132,35 @@ function isDraft(value: unknown, workspace: StudioWorkspace): value is Draft {
     && steps.some(step => step.id === value.step)
 }
 
-function migrateDraft(value: unknown, version: number) {
-  // Version 1 drafts predate lyrics and key. Everything else must already be valid.
-  return version === 1 && isRecord(value) && !('lyrics' in value) && !('musicKey' in value) ? { ...value, lyrics: '', musicKey: 'C major' } : value
+function migrateDraft(value: unknown, addGenerationFields: boolean) {
+  return addGenerationFields && isRecord(value) && !('lyrics' in value) && !('musicKey' in value) ? { ...value, lyrics: '', musicKey: 'C major' } : value
 }
 
 export function parseStudioState(serialized: string): StudioState {
   const value: unknown = JSON.parse(serialized)
-  if (!isRecord(value) || (value.version !== 1 && value.version !== studioStateVersion)) throw new Error('The saved draft has an unsupported format.')
+  if (!isRecord(value) || ![1, 2, 3, studioStateVersion].includes(Number(value.version)) || typeof value.version !== 'number') throw new Error('The saved draft has an unsupported format.')
   const workspace = workspaces.find(item => item.id === value.workspace)?.id
-  // States saved before the Decomposer workspace existed receive its default draft; a present but malformed one is rejected.
+  const initial = createInitialState()
+  // Both parallel v2 shapes and v3 retain their original caption-model choice.
+  const hasAnalysisDraft = value.decomposition !== undefined
+  const addGenerationFields = value.version === 1 || (value.version === 2 && hasAnalysisDraft)
   const drafts = isRecord(value.drafts) ? {
-    effects: migrateDraft(value.drafts.effects, value.version),
-    music: migrateDraft(value.drafts.music, value.version),
-    decomposer: value.drafts.decomposer === undefined ? createInitialState().drafts.decomposer : migrateDraft(value.drafts.decomposer, value.version)
+    effects: migrateDraft(value.drafts.effects, addGenerationFields),
+    music: migrateDraft(value.drafts.music, addGenerationFields),
+    decomposer: value.drafts.decomposer === undefined && value.version <= 2 ? initial.drafts.decomposer : migrateDraft(value.drafts.decomposer, addGenerationFields)
   } : undefined
   if (!workspace || !drafts || !isDraft(drafts.effects, 'effects') || !isDraft(drafts.music, 'music') || !isDraft(drafts.decomposer, 'decomposer')) {
     throw new Error('The saved draft has an unsupported format.')
   }
-  return { version: studioStateVersion, workspace, drafts: { effects: drafts.effects, music: drafts.music, decomposer: drafts.decomposer } }
+  const decomposition = hasAnalysisDraft || value.version >= 3
+    ? value.version === studioStateVersion
+      ? decompositionDraftSchema.parse(value.decomposition)
+      : { ...legacyDecompositionDraftSchema.parse(value.decomposition), captionModel: 'captions' as const }
+    : value.drafts && isRecord(value.drafts) && value.drafts.decomposer !== undefined ? {
+      ...initial.decomposition,
+      stems: drafts.decomposer.loop ? ['vocals', 'drums', 'bass', 'other'] as const : [],
+      lyrics: drafts.decomposer.instrumental ? 'none' as const : 'tiny' as const,
+      end: Number(drafts.decomposer.duration) > 0 && Number(drafts.decomposer.duration) <= 1800 ? Number(drafts.decomposer.duration) : 30
+    } : initial.decomposition
+  return { version: studioStateVersion, workspace, drafts: { effects: drafts.effects, music: drafts.music, decomposer: drafts.decomposer }, decomposition: decompositionDraftSchema.parse(decomposition) }
 }
