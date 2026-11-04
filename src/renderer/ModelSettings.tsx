@@ -32,9 +32,14 @@ export function ModelSettings({ backend, workspace, onWorkspace }: { backend: Ba
   return <>
     <p className="dialog-intro model-intro">One recommended local setup per task. More choices under Advanced. Changes save automatically on this device.</p>
     <YourComputer backend={backend} />
-    <p className="field-label">Task</p>
-    <div className="segmented" aria-label="Model workspace">{(['effects', 'music'] as const).map(tab =>
-      <button key={tab} aria-pressed={workspace === tab} onClick={() => onWorkspace(tab)}>{tab === 'effects' ? 'Effects' : 'Music'}</button>)}</div>
+    <label className="field-label" htmlFor="model-task">Task</label>
+    <select id="model-task" value={workspace} onChange={event => {
+      const task = event.target.value
+      if (task === 'effects' || task === 'music') onWorkspace(task)
+    }}>
+      <option value="effects">Effects</option>
+      <option value="music">Music</option>
+    </select>
     {backend.settingsError && <p className="warning-text" role="alert"><AlertTriangle size={14} /> {backend.settingsError}</p>}
 
     <div className="model-card">
