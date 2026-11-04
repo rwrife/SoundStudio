@@ -1,4 +1,5 @@
 import type { AudioInfo } from './audio'
+import { formatMemory, memoryPair } from './hardware'
 import { effectCategories, musicGenres, musicKeys, musicMoods, type Draft, type Workspace } from './workspace'
 
 // ---------- Model profiles ----------
@@ -289,6 +290,21 @@ export function createDefaultBackendSettings(): BackendSettings {
   }
 }
 
+export function isRecommendedChoice(workspace: Workspace, choice: ModelChoice): boolean {
+  return choice.profileId === createDefaultBackendSettings().models[workspace].profileId
+    && !choice.checkpoint && !choice.textEncoder && !choice.workflow
+}
+
+export function useRecommendedSetup(settings: BackendSettings, workspace: Workspace): BackendSettings {
+  return { ...settings, models: { ...settings.models, [workspace]: createDefaultBackendSettings().models[workspace] } }
+}
+
+export function modelRequirements(profile: ModelProfile): string {
+  if (profile.execution === 'cloud') return 'Remote - local inference GPU not required'
+  if (profile.recommendedVramGb === null) return 'Requirements depend on your workflow'
+  return `About ${profile.recommendedVramGb} GB GPU memory suggested (estimate)`
+}
+
 function parseModelChoice(value: unknown, workspace: Workspace): ModelChoice {
   if (!isRecord(value) || typeof value.profileId !== 'string' || !(value.profileId in modelProfiles)
     || !modelProfiles[value.profileId as ModelProfileId].workspaces.includes(workspace)
@@ -336,7 +352,7 @@ export function validateCloudConfiguration(value: unknown): CloudConfiguration {
 
 // ---------- Backend status, readiness and hardware guidance ----------
 
-export interface BackendDevice { name: string; type: string; vramTotal: number; vramFree: number }
+export interface BackendDevice { name: string; type: string; vramTotal: number | null; vramFree: number | null }
 
 export interface BackendStatus {
   endpoint: string
@@ -420,14 +436,19 @@ export type HardwareFit = { level: 'likely' | 'tight' | 'cpu' | 'unknown' | 'rem
 export function assessHardware(profile: ModelProfile, devices: BackendDevice[]): HardwareFit {
   if (profile.execution === 'cloud') return { level: 'remote', text: `Runs on ${profile.provider?.name} servers. Local hardware is not used for inference.` }
   if (profile.recommendedVramGb === null) return { level: 'unknown', text: 'Depends on the nodes and models in your workflow.' }
-  const accelerated = devices.filter(device => device.type !== 'cpu' && device.vramTotal > 0)
+  const accelerated = devices.filter(device => device.type !== 'cpu' && device.type !== 'unknown')
   if (!devices.length) return { level: 'unknown', text: 'ComfyUI did not report a device.' }
-  if (!accelerated.length) return { level: 'cpu', text: 'ComfyUI reports CPU only. Generation will be very slow.' }
-  const best = accelerated.reduce((a, b) => (b.vramTotal > a.vramTotal ? b : a))
-  const gb = Math.round(best.vramTotal / 1024 ** 3 * 10) / 10
-  return gb >= profile.recommendedVramGb
-    ? { level: 'likely', text: `Likely fits: ${gb} GB VRAM reported (about ${profile.recommendedVramGb} GB suggested).` }
-    : { level: 'tight', text: `May not fit: ${gb} GB VRAM reported, about ${profile.recommendedVramGb} GB suggested. ComfyUI may offload and run slowly.` }
+  if (devices.every(device => device.type === 'cpu')) return { level: 'cpu', text: 'ComfyUI reports CPU only. Generation may be very slow; model compatibility is not verified.' }
+  const measured = accelerated.filter(device => device.type !== 'mps')
+    .map(device => ({ device, memory: memoryPair(device.vramTotal, device.vramFree) }))
+    .filter(item => item.memory.free !== null)
+  if (!measured.length) return { level: 'unknown', text: 'GPU memory availability is unknown or shared with system RAM. Model fit is not verified.' }
+  const best = measured.reduce((a, b) => (b.memory.free! > a.memory.free! ? b : a))
+  const enough = best.memory.free! >= profile.recommendedVramGb * 1024 ** 3
+  return {
+    level: enough ? 'likely' : 'tight',
+    text: `${enough ? 'Likely fits' : 'May not fit'}: ${formatMemory(best.memory.free)} free of ${formatMemory(best.memory.total)} on ${best.device.name}. About ${profile.recommendedVramGb} GB suggested; advisory only, not a compatibility guarantee.`
+  }
 }
 
 // ---------- Generation requests ----------

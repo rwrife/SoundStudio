@@ -87,7 +87,15 @@ Sound Studio only stops a ComfyUI it started itself. Console output goes to `log
 
 ## Models
 
-Effects and Music each have their own generation model choice. Decomposer has separate local analysis profiles in the same Model Settings drawer; opening it never selects a generation model. The generation defaults are Stable Audio Open 1.0 for Effects and ACE-Step 1.5 Turbo for Music. Their settings show the current model, readiness and missing-file downloads. Other models, files, custom workflows and cloud partners remain under **Advanced**, initially collapsed unless customized, with limits, hardware guidance, license and source.
+Effects and Music each have their own generation model choice. Decomposer has separate local analysis profiles in the same Model Settings drawer; opening it never selects a generation model. The generation defaults are Stable Audio Open 1.0 for Effects and ACE-Step 1.5 Turbo for Music. Stable Audio Open plus T5 also covers short instrumental music (1-47 seconds, no lyrics or key control), so you can reuse it in Music instead of installing another model if that meets your needs. ACE-Step retains lyrics, tempo, key and longer songs; its approximately 12 GB GPU-memory guidance is higher than Stable Audio Open's 6 GB.
+
+Choose **Effects**, **Music** or **Decomposer** from the **Task** dropdown in Model Settings. This changes only which task's settings you are viewing, not the active workspace or its draft.
+
+**Your computer** is shown without expanding Advanced: OS/architecture, CPU and total/available system RAM measured by the desktop app, separately from each GPU's name and total/free memory reported by ComfyUI. **Refresh** remeasures the host and refreshes an already connected backend; it never connects a disconnected backend or changes saved settings. Unknown or invalid memory stays unknown. CPU devices are not reported as GPUs, GPU memory is never added across devices, and unified/shared memory is not treated as dedicated VRAM. The renderer-only browser preview cannot measure host hardware and says so.
+
+The shared planning target is **32 GB system RAM**, with **64 GB and CUDA preferred**, not a promise that every local model fits. GPU memory, model files, nodes and architecture still matter. The current model card shows **Recommended setup** or **Your saved choice**, Local/Remote execution, requirements, observed fit and readiness. Remote warnings, setup issues, download progress/cancellation and saving errors remain outside Advanced. Settings save automatically. **Use recommended setup** restores only the selected task's model and Automatic file choices; it leaves the other task, backend address, cloud consent/key and workspace drafts untouched. It does not download or generate anything.
+
+Choosing another model, a specific file, a custom workflow or a cloud partner model is under **Advanced**, which starts collapsed every time you open Model Settings, including with saved custom choices. Every alternative shows concise requirements before selection: existing local GPU-memory estimates, no local inference GPU for cloud partners, or workflow-dependent requirements. Model details under Advanced retain length limits, lyrics/key support, license and source. This implements the [shared model-settings UX plan](docs/model-settings-ux-plan.md) without a shared package or backend.
 
 ### Download the default models
 
@@ -110,7 +118,7 @@ These open-weight models run through ComfyUI's built-in nodes. Sound Studio can 
 | ACE-Step 1.5 Turbo | Music | `models/checkpoints/ace_step_1.5_turbo_aio.safetensors` from [Comfy-Org/ACE-Step-1.5](https://huggingface.co/Comfy-Org/ACE-Step-1.5) (9.3 GB) | 10-600 s, lyrics, tempo and key. Apache-2.0 as published by Comfy-Org. About 12 GB VRAM suggested. |
 | ACE-Step v1 3.5B | Music | `models/checkpoints/ace_step_v1_3.5b.safetensors` from [Comfy-Org/ACE-Step_ComfyUI_repackaged](https://huggingface.co/Comfy-Org/ACE-Step_ComfyUI_repackaged) (7.2 GB) | 5-240 s, lyrics. Apache-2.0. About 10 GB VRAM suggested. |
 
-Sound Studio picks a matching checkpoint automatically, or you can choose a specific file. The file list puts the files that match the model first. If a saved choice doesn't look like the selected model but a matching file is installed, the model shows **NEEDS SETUP** and offers **Use *matching file* instead**, which switches back to Automatic in one click. The Generate panel only flags backend checks for the workspace you are in. Hardware fit compares the suggested VRAM with what ComfyUI reports. It is guidance, not a measurement of real performance.
+Sound Studio picks a matching checkpoint automatically, or you can choose a specific file. The file list puts the files that match the model first. If a saved choice doesn't look like the selected model but a matching file is installed, the model shows **NEEDS SETUP** and offers **Use *matching file* instead** without opening Advanced, which switches back to Automatic in one click. The Generate panel only flags backend checks for the workspace you are in. Hardware fit compares suggested GPU memory with the most free memory on a single reported device, not the sum or total capacity alone. It is advisory, never a compatibility guarantee or a measurement of real performance, and does not block remote inference for lack of a local GPU.
 
 ### Cloud partner models (opt-in)
 
@@ -230,6 +238,8 @@ npm run test:desktop
 
 `npm test` covers drafts and migration, model profiles, the model download catalog and downloader (host allowlist, redirects, size and SHA-256 checks, no overwrites, confirmation), ComfyUI install detection and launch arguments, output node installation, readiness checks, the loopback endpoint policy, request validation, workflow builders and output node selection, custom workflow placeholders, readiness and cloud gating, history interpretation and WAV/FLAC parsing.
 
+Hardware and settings regression coverage includes invalid/missing memory, CPU-only and unified-memory reports, separate GPU budgets, free-versus-total thresholds, requirement labels and task-scoped recommendation resets. The desktop smoke also checks measured host details, browser-only hardware unavailability, collapsed saved-custom settings, cloud-consent preservation and file correction without expanding Advanced.
+
 `npm run test:desktop` builds and launches the real Electron app with an isolated temporary profile. It runs against `scripts/mock-comfyui.mjs`, a test fixture that speaks the ComfyUI HTTP and WebSocket API and returns a synthesized test tone. The smoke test covers:
 
 - Connection policy, the first-run check and the readiness checks.
@@ -251,7 +261,7 @@ Capture the actual app for documentation:
 npm run screenshots
 ```
 
-This runs the same checks and captures actual app windows in `docs/screenshots`. Generation captures happen before connecting to mock ComfyUI. Decomposer's DSP capture uses a clearly named synthetic fixture, not model output; `stem-playback-smoke.mjs` captures actual separated stems. Inspect captures and retain attribution; never use fixtures as ML evidence.
+This runs the same checks and captures actual app windows in `docs/screenshots`, including a cropped `app-header.png`. Generation captures happen before connecting to mock ComfyUI. Decomposer's DSP capture uses a clearly named synthetic fixture, not model output; `stem-playback-smoke.mjs` captures actual separated stems. Inspect captures and retain attribution; never use fixtures as ML evidence.
 
 ## Troubleshooting
 
@@ -277,3 +287,5 @@ This runs the same checks and captures actual app windows in `docs/screenshots`.
 ## Design reference
 
 The layout takes its direction from [rwrife/CharacterStudio](https://github.com/rwrife/CharacterStudio), inspected at commit `c4497c1c7f148786c102d7fb5e6998f2c62b4ff7`: header workspace tabs, contextual left settings, a connected chevron stepper and a large central working surface. Documentation follows its concise README, detailed guide and agent guidance split.
+
+The app-drawn header follows the [shared header metrics](docs/model-settings-ux-plan.md#shared-app-header-metrics): Segoe UI Variable, a 78 px desktop header, 40 px brand icon, 24 px wordmark (700/300 weights), 8 px uppercase tagline and 34 px action controls. Both apps retain their own names, icons and accent colors; the native OS title bar is unchanged. The brand stays the same size at the supported 960 px minimum, while the narrow web preview retains a two-row header with compact icon actions.

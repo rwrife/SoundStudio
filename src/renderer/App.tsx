@@ -22,6 +22,7 @@ import { ModelDownloadPanel } from './ModelDownloadPanel'
 import { totalBytes } from '../shared/modelDownloads'
 import { backendChecks, backendSummary } from '../shared/backendChecks'
 import { executionBadge, ModelSettings } from './ModelSettings'
+import { YourComputer } from './YourComputer'
 import { TakePlayer } from './TakePlayer'
 import { useBackend } from './useBackend'
 import { useStudioState } from './useStudioState'
@@ -189,8 +190,8 @@ export function App() {
   return <div className="app">
     <header className="topbar">
       <a className="brand" href="#workspace" aria-label="Sound Studio workspace">
-        <img src="./icon.svg" alt="" width="38" height="38" />
-        <span>sound <strong>studio</strong><small>LOCAL SOUND. LIMITLESS IDEAS.</small></span>
+        <img src="./icon.svg" alt="" width="40" height="40" />
+        <span className="brand-text"><span className="brand-wordmark">sound<strong>studio</strong></span><small>LOCAL SOUND. LIMITLESS IDEAS.</small></span>
       </a>
       <nav className="workspace-tabs" role="tablist" aria-label="Sound workspace" onKeyDown={navigateTabs}>
         {workspaces.map((tab, index) => <Fragment key={tab.id}>
@@ -204,8 +205,8 @@ export function App() {
       </nav>
       <div className="topbar-actions">
         <button className="subtle-button" onClick={openModels} aria-haspopup="dialog"><SlidersHorizontal size={15} /> Model Settings</button>
-        <button className={`backend-button ${!isDecomposer && summary.tone === 'warning' && backend.available ? 'warning' : ''}`} onClick={() => isDecomposer ? openModels() : setSurface('connections')} aria-haspopup="dialog">
-          <span className={`status-dot ${isDecomposer || !backend.available ? '' : summary.tone === 'ready' ? 'blue' : summary.tone === 'pending' ? 'starting' : 'warn'}`} /> {isDecomposer ? 'Local analysis' : backendLabel} <ChevronRight size={13} /></button>
+        <button className={`backend-button ${!isDecomposer && summary.tone === 'warning' && backend.available ? 'warning' : ''}`} onClick={() => isDecomposer ? openModels() : setSurface('connections')} aria-haspopup="dialog" aria-label={isDecomposer ? 'Local analysis' : backendLabel}>
+          <span className={`status-dot ${isDecomposer || !backend.available ? '' : summary.tone === 'ready' ? 'blue' : summary.tone === 'pending' ? 'starting' : 'warn'}`} /><span className="backend-label">{isDecomposer ? 'Local analysis' : backendLabel}</span><ChevronRight size={13} /></button>
         <button className="icon-button" aria-label="Quick guide" onClick={() => setSurface('help')} aria-haspopup="dialog"><CircleHelp size={18} /></button>
       </div>
     </header>
@@ -385,8 +386,12 @@ export function App() {
     <footer className="statusbar"><span><ShieldCheck size={13} /> LOCAL FIRST <span className="footer-divider">/</span><span>{backend.cloud?.enabled ? 'Cloud partner models enabled' : 'No cloud. No uploads.'}</span></span><span className="footer-flow">Describe <ChevronRight size={10} /> {isDecomposer ? 'Decompose' : 'Generate'} <ChevronRight size={10} /> Refine <ChevronRight size={10} /> Export</span><span><span className="status-dot blue" /> PREVIEW <span className="footer-divider">/</span> v{version}</span></footer>
 
     {surface === 'models' && <Dialog title="Model Settings" eyebrow="YOUR LOCAL ENGINE" drawer onClose={() => { setSurface(null); setRuntimeRevision(value => value + 1) }}>
-      <div className="segmented" aria-label="Model workspace">{workspaces.map(tab =>
-        <button key={tab.id} aria-pressed={modelWorkspace === tab.id} onClick={() => setModelWorkspace(tab.id)}>{tab.label}</button>)}</div>
+      <YourComputer backend={backend} />
+      <label className="field-label" htmlFor="model-task">Task</label>
+      <select id="model-task" value={modelWorkspace} onChange={event => {
+        const task = event.target.value
+        if (task === 'effects' || task === 'music' || task === 'decomposer') setModelWorkspace(task)
+      }}>{workspaces.map(tab => <option key={tab.id} value={tab.id}>{tab.label}</option>)}</select>
       {modelWorkspace === 'decomposer' ? <DecomposerModels />
         : <ModelSettings backend={backend} workspace={modelWorkspace} />}
     </Dialog>}

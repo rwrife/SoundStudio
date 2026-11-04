@@ -8,6 +8,7 @@ import type { ComfyLauncher } from './launcher'
 import type { ModelDownloader } from './modelDownload'
 import type { TakeStore } from './takes'
 import { validateDownloadIds } from '../shared/modelDownloads'
+import { computerSummary } from './hardware'
 
 interface Services { cloud: CloudAccess; takes: TakeStore; generation: GenerationManager; launcher: ComfyLauncher; downloader: ModelDownloader; window: () => BrowserWindow | null }
 
@@ -32,6 +33,7 @@ export function registerIpc({ cloud, takes, generation, launcher, downloader, wi
     })
   }
 
+  handle(channels.computerSummary, async () => computerSummary())
   handle(channels.checkBackend, async (_window, endpoint) => new ComfyClient(endpoint).status())
   handle(channels.launcherStatus, async () => launcher.status())
   handle(channels.launcherFolder, async current => launcher.chooseFolder(current))

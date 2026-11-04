@@ -70,7 +70,7 @@ try {
   await page.getByRole('button', { name: /^2 Analyse/ }).click()
   assert.equal(await page.getByLabel('Description model', { exact: true }).inputValue(), 'captions-native')
   await page.getByRole('button', { name: 'Model Settings', exact: true }).click()
-  await page.getByRole('button', { name: 'Decomposer', exact: true }).click()
+  await page.getByRole('combobox', { name: 'Task', exact: true }).selectOption('decomposer')
   await page.getByRole('heading', { name: 'Qwen2.5-Omni Q4 qualitative descriptions', exact: true }).waitFor()
   await page.getByRole('heading', { name: 'Qwen2-Audio 7B (unverified)', exact: true }).waitFor()
   await page.keyboard.press('Escape')

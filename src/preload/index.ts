@@ -8,6 +8,7 @@ const invoke = (channel: string, ...args: unknown[]) => ipcRenderer.invoke(chann
 
 const bridge: SoundStudioBridge = {
   platform: process.platform,
+  getComputerSummary: () => invoke(channels.computerSummary),
   decomposer: Object.freeze({
     library: () => invoke('decomposer:library'),
     importAudio: () => invoke('decomposer:import'),

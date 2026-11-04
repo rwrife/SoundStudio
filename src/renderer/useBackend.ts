@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  assessReadiness, createDefaultBackendSettings, modelProfiles, normalizeEndpoint, parseBackendSettings,
+  assessReadiness, createDefaultBackendSettings, modelProfiles, normalizeEndpoint, parseBackendSettings, useRecommendedSetup,
   type BackendSettings, type BackendStatus, type CloudConfiguration, type CloudStatus, type GenerationRequest,
   type JobState, type ModelChoice, type Readiness, type Result, type TakeRecord, type WorkflowInspection
 } from '../shared/generation'
@@ -255,6 +255,10 @@ export function useBackend() {
     })
   }, [setSettings])
 
+  const recommendModel = useCallback((workspace: Workspace) => {
+    setSettings(current => useRecommendedSetup(current, workspace))
+  }, [setSettings])
+
   const configureCloud = useCallback(async (configuration: CloudConfiguration) => {
     if (!bridge) throw new Error('Cloud partner models need the desktop app.')
     const next = await unwrap(bridge.configureCloud(configuration))
@@ -293,7 +297,7 @@ export function useBackend() {
     refreshLauncher: () => bridge ? launcherAction(() => bridge.getLauncher()) : Promise.resolve(),
     chooseComfyFolder: () => bridge ? launcherAction(() => bridge.chooseComfyFolder()) : Promise.resolve(),
     showComfyLog: async () => { if (bridge) { const result = await bridge.showComfyLog(); setLauncherError(result.ok ? '' : result.error) } },
-    connect, disconnect, recheck: () => check(settings.endpoint), chooseModel, configureCloud, start, cancel, exportTake, deleteTake, refreshTakes
+    connect, disconnect, recheck: () => check(settings.endpoint), chooseModel, recommendModel, configureCloud, start, cancel, exportTake, deleteTake, refreshTakes
   }
 }
 

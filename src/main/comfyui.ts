@@ -1,5 +1,6 @@
 import type { BackendDevice, BackendStatus, ComfyOutputFile, ComfyWorkflow, WorkflowInspection } from '../shared/generation'
 import { builtInRequiredNodes, formatPromptError, normalizeEndpoint } from '../shared/generation'
+import { parseBackendDevices } from '../shared/hardware'
 
 const jsonLimit = 32 * 1024 * 1024
 export const audioLimit = 1024 * 1024 * 1024
@@ -88,12 +89,7 @@ export class ComfyClient {
   async status(): Promise<BackendStatus> {
     const stats = await this.json('/system_stats')
     if (!isRecord(stats) || !isRecord(stats.system)) throw new ComfyError(`The server at ${this.endpoint} did not answer like ComfyUI.`)
-    const devices: BackendDevice[] = (Array.isArray(stats.devices) ? stats.devices : []).filter(isRecord).map(device => ({
-      name: String(device.name ?? 'Unknown device').slice(0, 200),
-      type: String(device.type ?? 'unknown').slice(0, 40),
-      vramTotal: Number(device.vram_total) || 0,
-      vramFree: Number(device.vram_free) || 0
-    }))
+    const devices: BackendDevice[] = parseBackendDevices(stats.devices)
     const { infos, apiNodes } = await this.inspectNodes(builtInRequiredNodes)
     return {
       endpoint: this.endpoint,
