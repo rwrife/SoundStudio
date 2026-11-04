@@ -52,6 +52,7 @@ jobs:
             arch: x64
             executable: release/linux-unpacked/sound-studio
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     env:
       RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
@@ -71,6 +72,9 @@ jobs:
         run: |
           node --input-type=module -e "import fs from 'node:fs'; const { version } = JSON.parse(fs.readFileSync('package.json', 'utf8')); if (process.env.RELEASE_TAG !== 'v' + version) throw new Error('Release tag must match package.json version: v' + version)"
       - run: npm ci
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.13'
       - run: npm test
       - name: Check desktop on Linux
         if: runner.os == 'Linux'

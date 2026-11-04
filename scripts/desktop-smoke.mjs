@@ -17,13 +17,13 @@ if (executableIndex !== -1 && (!executablePath || executablePath.startsWith('--'
 // before connecting so the documentation never shows mock output.
 const userData = await mkdtemp(join(tmpdir(), 'sound-studio-smoke-'))
 const exportDir = await mkdtemp(join(tmpdir(), 'sound-studio-export-'))
-// LOCALAPPDATA points at a temporary folder so install detection finds only the fake ComfyUI below.
+// Isolate platform-specific install detection from the real user's folders.
 const localAppData = await mkdtemp(join(tmpdir(), 'sound-studio-local-'))
 const capture = process.argv.includes('--screenshots')
 const screenshots = resolve('docs/screenshots')
 const errors = []
 const { ELECTRON_RUN_AS_NODE: _unused, ...inherited } = process.env
-const environment = { ...inherited, LOCALAPPDATA: localAppData }
+const environment = { ...inherited, LOCALAPPDATA: localAppData, ...(process.platform === 'win32' ? {} : { HOME: localAppData }) }
 const apiKey = 'comfyui-smoke-test-key-0123456789abcdef'
 const mock = await startMockComfyUI()
 const fakeComfy = await createFakeComfyInstall(localAppData)
@@ -340,7 +340,15 @@ try {
     })
     await page.getByRole('button', { name: 'Start local ComfyUI' }).click()
     await backendButton(page).click()
-    await check(connections, 'ComfyUI server').getByText(/ComfyUI 0\.3\.0-launched at .*, started by Sound Studio\./).waitFor({ timeout: 60_000 })
+    try {
+      await check(connections, 'ComfyUI server').getByText(/ComfyUI 0\.3\.0-launched at .*, started by Sound Studio\./).waitFor({ timeout: 60_000 })
+    } catch (error) {
+      console.error('Launcher status:', await page.evaluate(() => window.soundStudio.getLauncher()))
+      console.error('Backend connections:', await connections.innerText())
+      const log = join(userData, 'logs', 'comfyui.log')
+      if (existsSync(log)) console.error('Fake ComfyUI log:', await readFile(log, 'utf8'))
+      throw error
+    }
     await check(connections, 'Effects model').getByRole('button', { name: 'Download' }).waitFor()
     const prompts = await app.evaluate(() => globalThis.downloadPrompts)
     assert.equal(prompts.length, 1, 'the missing default models are offered once')

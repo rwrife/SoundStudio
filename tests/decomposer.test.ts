@@ -183,6 +183,7 @@ test('queue cancellation, worker crashes and restart recovery never publish succ
     runtime.wait = false; runtime.fail = true
     const failed = await store.start(input)
     await eventually(() => store.snapshot().jobs.find(job => job.id === failed.id)?.state === 'failed')
+    await eventually(() => !store.isWorking())
     assert.match(store.snapshot().jobs[2].error ?? '', /worker crash/)
     const interrupted = { ...store.snapshot().jobs[2], state: 'running', error: null }
     await writeFile(join(root, 'data', 'analyses', failed.id, 'job.json'), JSON.stringify({ version: 2, job: interrupted, artifacts: {} }))
