@@ -83,11 +83,15 @@ jobs:
       - name: Check packaged application on Linux
         if: runner.os == 'Linux'
         shell: bash
-        run: xvfb-run --auto-servernum node scripts/desktop-smoke.mjs --executable "$PACKAGED_EXECUTABLE"
+        run: |
+          xvfb-run --auto-servernum node scripts/desktop-smoke.mjs --executable "$PACKAGED_EXECUTABLE"
+          xvfb-run --auto-servernum node scripts/decomposer-smoke.mjs --executable "$PACKAGED_EXECUTABLE"
       - name: Check packaged application on Windows and macOS
         if: runner.os != 'Linux'
         shell: bash
-        run: node scripts/desktop-smoke.mjs --executable "$PACKAGED_EXECUTABLE"
+        run: |
+          node scripts/desktop-smoke.mjs --executable "$PACKAGED_EXECUTABLE"
+          node scripts/decomposer-smoke.mjs --executable "$PACKAGED_EXECUTABLE"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: sound-studio-${{ matrix.platform }}-${{ matrix.arch }}
@@ -120,4 +124,4 @@ jobs:
         run: |
           gh release create "$RELEASE_TAG" release/* \
             --verify-tag --draft --title "Sound Studio $RELEASE_TAG" \
-            --notes "Early application shell. AI generation, decomposition, playback, import and export are not implemented. Downloads are unsigned and not notarized. Windows and Linux x86 downloads are 64-bit (x64). Review the downloads before publishing this draft."
+            --notes "Early preview with local ComfyUI generation and local Decomposer analysis. ComfyUI, model weights and analysis runtimes require separate explicit setup. Managed analysis setup supports Windows x64, including x64 emulation on Windows ARM64; macOS/Linux packages do not imply analysis-runtime support. Downloads are unsigned and not notarized. Windows and Linux x86 downloads are 64-bit (x64). Review the downloads before publishing this draft."

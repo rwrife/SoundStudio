@@ -1,19 +1,32 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, rm } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
+import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { _electron as electron } from 'playwright'
+import { createFakeComfyInstall, freePort, reachable } from './fake-comfyui-install.mjs'
+import { startMockComfyUI } from './mock-comfyui.mjs'
 
-const capture = process.argv.includes('--screenshots')
-const screenshots = resolve('docs/screenshots')
-const errors = []
-const { ELECTRON_RUN_AS_NODE: _unused, ...environment } = process.env
 const executableIndex = process.argv.indexOf('--executable')
 const executablePath = executableIndex === -1 ? undefined : process.argv[executableIndex + 1]
 if (executableIndex !== -1 && (!executablePath || executablePath.startsWith('--'))) {
   throw new Error('--executable requires the path to a packaged application.')
 }
+// Exercises the real Electron app. Generation runs against a mock ComfyUI that returns a synthesized test tone,
+// so this proves job handling, validation, storage and export, not model quality. Screenshots are captured
+// before connecting so the documentation never shows mock output.
 const userData = await mkdtemp(join(tmpdir(), 'sound-studio-smoke-'))
+const exportDir = await mkdtemp(join(tmpdir(), 'sound-studio-export-'))
+// LOCALAPPDATA points at a temporary folder so install detection finds only the fake ComfyUI below.
+const localAppData = await mkdtemp(join(tmpdir(), 'sound-studio-local-'))
+const capture = process.argv.includes('--screenshots')
+const screenshots = resolve('docs/screenshots')
+const errors = []
+const { ELECTRON_RUN_AS_NODE: _unused, ...inherited } = process.env
+const environment = { ...inherited, LOCALAPPDATA: localAppData }
+const apiKey = 'comfyui-smoke-test-key-0123456789abcdef'
+const mock = await startMockComfyUI()
+const fakeComfy = await createFakeComfyInstall(localAppData)
 let app
 
 async function launch() {
@@ -33,21 +46,109 @@ async function launch() {
 
 async function assertNoOverflow(page) {
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, 'Window must not overflow horizontally')
-  for (const selector of ['.settings-panel', '.workflow-main']) {
+  for (const selector of ['.settings-panel:visible', '.workflow-main:visible']) {
     assert.equal(await page.locator(selector).evaluate(element => element.scrollWidth <= element.clientWidth), true, `${selector} must not overflow horizontally`)
   }
 }
 
+async function assertHeaderMetrics(page, width) {
+  const metrics = await page.locator('.topbar').evaluate(header => {
+    const style = element => {
+      const css = getComputedStyle(element)
+      return Object.fromEntries(['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing', 'gap', 'paddingLeft', 'paddingTop', 'marginLeft', 'flexShrink'].map(key => [key, css[key]]))
+    }
+    return {
+      header: style(header), height: header.getBoundingClientRect().height,
+      icon: { ...style(header.querySelector('.brand img')), width: header.querySelector('.brand img').getBoundingClientRect().width, height: header.querySelector('.brand img').getBoundingClientRect().height },
+      brand: style(header.querySelector('.brand')), stack: style(header.querySelector('.brand-text')),
+      wordmark: style(header.querySelector('.brand-wordmark')), studio: style(header.querySelector('.brand strong')),
+      tagline: style(header.querySelector('.brand small')), actions: style(header.querySelector('.topbar-actions')),
+      buttons: [...header.querySelectorAll('.topbar-actions > button')].map(button => ({ ...style(button), height: button.getBoundingClientRect().height }))
+    }
+  })
+  assert.match(metrics.header.fontFamily, /"Segoe UI Variable", "Segoe UI", sans-serif/)
+  assert.equal(metrics.height, 78)
+  assert.equal(metrics.header.paddingLeft, width <= 1200 ? '18px' : '24px')
+  assert.equal(metrics.header.paddingTop, '0px')
+  assert.equal(metrics.header.gap, '20px')
+  assert.equal(metrics.icon.width, 40)
+  assert.equal(metrics.icon.height, 40)
+  assert.equal(metrics.icon.flexShrink, '0')
+  assert.equal(metrics.brand.gap, '12px')
+  assert.equal(metrics.stack.gap, '3px')
+  assert.equal(metrics.wordmark.fontSize, '24px')
+  assert.equal(metrics.wordmark.fontWeight, '700')
+  assert.equal(metrics.wordmark.lineHeight, '26.4px')
+  assert.equal(metrics.wordmark.letterSpacing, '-0.8px')
+  assert.equal(metrics.studio.fontWeight, '300')
+  assert.equal(metrics.studio.marginLeft, '4px')
+  assert.equal(metrics.tagline.fontSize, '8px')
+  assert.equal(metrics.tagline.fontWeight, '500')
+  assert.equal(metrics.tagline.lineHeight, '11.2px')
+  assert.equal(metrics.tagline.letterSpacing, '1.5px')
+  assert.equal(metrics.actions.gap, width <= 1200 ? '6px' : '8px')
+  for (const button of metrics.buttons) {
+    assert.equal(button.height, 34)
+    assert.equal(button.fontSize, '12px')
+    assert.equal(button.fontWeight, '500')
+    assert.equal(button.lineHeight, '16px')
+  }
+  console.log(`Header ${width}px: 78px; icon 40x40; wordmark 24px/700+300/26.4px/-0.8px; tagline 8px/500/11.2px/1.5px; padding ${metrics.header.paddingLeft}; actions 34px/12px/500/16px gap ${metrics.actions.gap}.`)
+}
+
+const jobStatus = (page, status) => page.locator('.job-card .eyebrow', { hasText: new RegExp(`^${status}`) }).waitFor({ timeout: 30_000 })
+const expectTakes = (page, count) => page.locator('.takes-section .section-heading .count', { hasText: new RegExp(`^${count}$`) }).waitFor({ timeout: 10_000 })
+const actionReason = page => page.locator('#action-reason').innerText()
+const lastPrompt = () => mock.prompts.at(-1).body
+
+async function stopsAnswering(endpoint) {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    if (!await reachable(endpoint)) return true
+    await new Promise(resolve => setTimeout(resolve, 250))
+  }
+  return false
+}
+
+async function openModels(page, { advanced = true } = {}) {
+  await page.getByRole('button', { name: 'Model Settings', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Model Settings', exact: true })
+  const details = dialog.locator('details.advanced-settings')
+  if (advanced && !(await details.evaluate(element => element.open))) await details.locator('summary').click()
+  return dialog
+}
+
+async function writeBrief(page, fields) {
+  await page.getByRole('button', { name: /^1 Describe/ }).click()
+  for (const [label, value] of Object.entries(fields)) await page.getByLabel(new RegExp(`^${label}`)).fill(value)
+  await page.getByRole('button', { name: 'Continue to generation' }).click()
+}
+
+const backendButton = page => page.locator('.backend-button')
+const check = (dialog, name) => dialog.locator('li.check').filter({ has: dialog.page().locator('strong', { hasText: name }) })
+const offline = `http://127.0.0.1:${await freePort()}`
+
 try {
   if (capture) await mkdir(screenshots, { recursive: true })
   let page = await launch()
+  // A first run checks the default address for ComfyUI. Point it at a closed port so a ComfyUI the developer
+  // happens to be running is never touched by the test.
+  await page.waitForFunction(() => localStorage.getItem('sound-studio.backend.v1') !== null)
+  await page.evaluate(endpoint => {
+    const settings = JSON.parse(localStorage.getItem('sound-studio.backend.v1'))
+    if (settings.connectOnLaunch !== true) throw new Error('A first run should check for a local ComfyUI')
+    localStorage.setItem('sound-studio.backend.v1', JSON.stringify({ ...settings, endpoint }))
+  }, offline)
+  await page.reload()
+  await page.getByRole('tab', { name: 'Effects', exact: true }).waitFor()
+  await page.getByRole('button', { name: /^Setup needs attention/ }).waitFor({ timeout: 15_000 })
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1440, 1000))
   await assertNoOverflow(page)
+  await assertHeaderMetrics(page, 1440)
   assert.equal(await page.locator('.workspace-tabs svg').count(), 0, 'Workspace tabs are text-only')
   assert.equal(await page.locator('.workspace-tab-divider').count(), 2)
   assert.equal(await page.locator('.workspace-tab-divider').first().textContent(), '|')
   assert.equal(await page.locator('.workspace-tab-divider').first().getAttribute('aria-hidden'), 'true')
-  assert.match(await page.locator('.brand').innerText(), /sound studio/)
+  assert.equal(await page.locator('.brand-wordmark').innerText(), 'soundstudio', 'Wordmark spacing comes from the explicit shared CSS gap, not text whitespace')
   assert.match(await page.getByRole('tab', { name: 'Effects', exact: true }).evaluate(element => getComputedStyle(element).fontFamily), /Segoe UI Variable/)
   assert.equal(await page.getByRole('tab', { name: 'Effects', exact: true }).evaluate(element => getComputedStyle(element).fontSize), '19px')
   assert.equal(await page.getByRole('tab', { name: 'Decomposer', exact: true }).evaluate(element => getComputedStyle(element).fontSize), '19px')
@@ -57,28 +158,101 @@ try {
   assert.equal(await page.getByRole('button', { name: 'Play audio', exact: true }).isDisabled(), true)
   assert.equal(await page.evaluate(() => typeof window.require), 'undefined')
   assert.equal(await page.evaluate(() => typeof window.soundStudio?.platform), 'string')
-  if (capture) await page.screenshot({ path: join(screenshots, 'effects-workspace.png'), scale: 'css', animations: 'disabled', caret: 'hide' })
+  const computer = await page.evaluate(() => window.soundStudio.getComputerSummary())
+  assert.equal(computer.ok, true)
+  assert.ok(computer.value.os && computer.value.cpu && computer.value.ramTotal > 0)
+  assert.ok(computer.value.ramFree >= 0 && computer.value.ramFree <= computer.value.ramTotal)
+  assert.equal(await page.evaluate(() => typeof window.soundStudio?.startGeneration), 'function')
+  assert.match(await page.locator('.setup-warning').innerText(), /ComfyUI is not running/)
+  assert.equal(await page.getByRole('button', { name: 'Model: Local / Stable Audio Open 1.0. Needs setup. Open Model Settings' }).isVisible(), true)
+  assert.match(await page.locator('.statusbar').innerText(), /No cloud\. No uploads\./)
+  if (capture) {
+    await page.screenshot({ path: join(screenshots, 'effects-workspace.png'), scale: 'css', animations: 'disabled', caret: 'hide' })
+    await page.locator('.topbar').screenshot({ path: join(screenshots, 'app-header.png'), scale: 'css', animations: 'disabled', caret: 'hide' })
+  }
 
   await page.getByLabel('Take name').fill('Forest ambience')
   await page.getByLabel('Describe your sound').fill('Rain through a forest canopy')
   await page.getByLabel('Seamless loop').check()
-  await page.getByRole('button', { name: 'Model Settings', exact: true }).click()
-  await page.getByRole('dialog', { name: 'Model Settings', exact: true }).waitFor()
+  const settingsBeforeOpen = await page.evaluate(() => localStorage.getItem('sound-studio.backend.v1'))
+  let models = await openModels(page, { advanced: false })
+  await models.waitFor()
+  await models.getByText('System RAM', { exact: true }).waitFor()
+  assert.equal(await models.getByRole('heading', { name: 'Your computer' }).isVisible(), true)
+  assert.match(await models.locator('.computer-summary').innerText(), /total \/ .*available/)
+  assert.match(await models.locator('.computer-summary').innerText(), /Unknown - connect in Backend connections/)
+  await models.getByRole('button', { name: 'Refresh', exact: true }).click()
+  await page.waitForFunction(() => document.querySelector('.computer-summary').getAttribute('aria-busy') === 'false')
+  assert.equal(await page.evaluate(() => localStorage.getItem('sound-studio.backend.v1')), settingsBeforeOpen, 'Opening and refreshing do not change backend/model settings')
   await page.keyboard.press('Shift+Tab')
   assert.equal(await page.evaluate(() => Boolean(document.activeElement.closest('dialog'))), true, 'Modal must contain keyboard focus')
-  await page.getByRole('button', { name: 'Music', exact: true }).click()
-  assert.equal(await page.getByRole('heading', { name: 'Local music generation' }).isVisible(), true)
-  await page.getByRole('button', { name: 'Decomposer', exact: true }).click()
-  assert.equal(await page.getByRole('heading', { name: 'Local music decomposition' }).isVisible(), true)
+  // First run shows only the recommended model; choosing models and files is under Advanced.
+  assert.equal(await models.locator('details.advanced-settings').evaluate(element => element.open), false)
+  assert.equal(await models.getByRole('combobox', { name: 'Task', exact: true }).inputValue(), 'effects')
+  assert.equal(await models.getByRole('radio', { name: /^Stable Audio Open 1\.0/ }).isVisible(), false)
+  assert.match(await models.locator('.model-card').innerText(), /NEEDS SETUP[\s\S]*Connect to a local ComfyUI server/)
+  if (capture) {
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1440, 1100))
+    await page.screenshot({ path: join(screenshots, 'model-settings.png'), scale: 'css', animations: 'disabled', caret: 'hide' })
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1440, 1000))
+  }
+  await models.locator('details.advanced-settings summary').click()
+  for (const heading of ['On this device', 'Cloud partner models', 'Your ComfyUI workflow']) assert.equal(await models.getByRole('heading', { name: heading, exact: true }).first().isVisible(), true)
+  for (const label of [/^Stable Audio Open 1\.0/, /^Mirelo SFX 2\.0/, /^ByteDance Seed Audio 1\.0/, /^Custom ComfyUI workflow/]) assert.equal(await models.getByRole('radio', { name: label }).count(), 1)
+  for (const option of await models.locator('.profile-option').all()) {
+    assert.match(await option.innerText(), /GPU memory suggested \(estimate\)|Remote - local inference GPU not required|Requirements depend on your workflow/)
+  }
+  assert.equal(await models.getByRole('radio', { name: /^Stable Audio Open 1\.0 \(recommended\)/ }).isChecked(), true)
+  assert.equal(await models.getByRole('checkbox', { name: /Allow cloud partner models/ }).isDisabled(), true)
+  await models.getByRole('combobox', { name: 'Task', exact: true }).focus()
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('Enter')
+  assert.equal(await models.getByRole('combobox', { name: 'Task', exact: true }).inputValue(), 'music', 'Task dropdown supports keyboard selection')
+  assert.equal(await models.getByRole('radio', { name: /^ACE-Step 1\.5 Turbo/ }).isChecked(), true)
+  assert.equal(await models.getByRole('radio', { name: /^ACE-Step v1 3\.5B/ }).count(), 1)
+  assert.equal(await models.getByRole('radio', { name: /^Mirelo/ }).count(), 0, 'Effects-only cloud models are not offered for music')
+  assert.deepEqual(await models.getByRole('combobox', { name: 'Task', exact: true }).locator('option').allTextContents(), ['Effects', 'Music', 'Decomposer'], 'Generation and analysis tasks share the settings dropdown')
+  await models.getByRole('radio', { name: /^ACE-Step v1 3\.5B/ }).check()
+  await page.keyboard.press('Escape')
+  models = await openModels(page, { advanced: false })
+  assert.equal(await models.locator('details.advanced-settings').evaluate(element => element.open), false, 'Saved custom settings never auto-expand Advanced')
+  await models.getByRole('combobox', { name: 'Task', exact: true }).selectOption('music')
+  assert.match(await models.locator('.model-card').innerText(), /ACE-Step v1 3.5B[\s\S]*Your saved choice \/ Local/)
+  await models.locator('details.advanced-settings summary').click()
+  await models.getByRole('combobox', { name: 'Task', exact: true }).selectOption('effects')
+  await models.getByRole('radio', { name: /^Mirelo SFX 2\.0/ }).check()
+  await models.locator('details.advanced-settings summary').click()
+  assert.match(await models.locator('.model-card').innerText(), /Your saved choice \/ Remote/)
+  assert.equal(await models.getByText(/Remote execution: prompts and settings/).isVisible(), true)
+  const beforeReset = await page.evaluate(() => JSON.parse(localStorage.getItem('sound-studio.backend.v1')))
+  await models.getByRole('combobox', { name: 'Task', exact: true }).selectOption('music')
+  await models.getByRole('button', { name: 'Use recommended setup', exact: true }).click()
+  assert.match(await models.locator('.model-card').innerText(), /ACE-Step 1.5 Turbo[\s\S]*Recommended setup \/ Local/)
+  const afterReset = await page.evaluate(() => JSON.parse(localStorage.getItem('sound-studio.backend.v1')))
+  assert.deepEqual(afterReset.models.effects, beforeReset.models.effects, 'Recommendation reset leaves the other task untouched')
+  assert.equal(afterReset.endpoint, beforeReset.endpoint)
+  assert.equal(afterReset.connectOnLaunch, beforeReset.connectOnLaunch)
+  assert.equal((await page.evaluate(() => window.soundStudio.getCloudStatus())).value.enabled, false, 'Changing models never enables cloud consent')
+  await models.getByRole('combobox', { name: 'Task', exact: true }).selectOption('effects')
+  await models.getByRole('button', { name: 'Use recommended setup', exact: true }).click()
+  await models.getByRole('combobox', { name: 'Task', exact: true }).selectOption('music')
+  await models.getByRole('combobox', { name: 'Task', exact: true }).selectOption('decomposer')
+  await models.getByRole('heading', { name: 'Local music decomposition' }).waitFor()
+  assert.equal(await models.getByRole('radio').count(), 0, 'Generation profiles are not offered for analysis')
   await page.keyboard.press('Escape')
   assert.equal(await page.getByRole('dialog').count(), 0)
   assert.equal(await page.getByRole('button', { name: 'Model Settings', exact: true }).evaluate(element => element === document.activeElement), true)
   assert.equal(await page.getByLabel('Describe your sound').inputValue(), 'Rain through a forest canopy')
+  assert.equal(await page.evaluate(() => localStorage.getItem('sound-studio.backend.v1')), settingsBeforeOpen, 'Returning to recommendations preserves all original connection settings')
 
   await page.getByRole('tab', { name: 'Effects', exact: true }).focus()
   await page.keyboard.press('ArrowRight')
   assert.equal(await page.getByRole('tab', { name: 'Music', exact: true }).getAttribute('aria-selected'), 'true')
   assert.equal(await page.getByLabel('Describe your music').inputValue(), '')
+  assert.equal(await page.getByLabel('Key', { exact: true }).inputValue(), 'C major')
+  await page.getByLabel('Instrumental only').uncheck()
+  assert.equal(await page.getByLabel(/^Lyrics/).isVisible(), true)
+  await page.getByLabel('Instrumental only').check()
   if (capture) {
     await page.evaluate(() => document.activeElement?.blur())
     await page.screenshot({ path: join(screenshots, 'music-workspace.png'), scale: 'css', animations: 'disabled', caret: 'hide' })
@@ -89,9 +263,10 @@ try {
   await page.getByLabel('Tempo').fill('85')
   await page.getByRole('button', { name: 'Continue to generation' }).click()
   assert.equal(await page.getByRole('button', { name: 'Generate music', exact: true }).isDisabled(), true)
+  assert.equal(await actionReason(page), 'Connect to ComfyUI to generate.')
   assert.match(await page.locator('.summary-card').innerText(), /lo-fi/)
   await page.getByRole('button', { name: /Review & refine/ }).click()
-  assert.equal(await page.getByRole('button', { name: 'Play take', exact: true }).isDisabled(), true)
+  assert.equal(await page.getByRole('button', { name: 'Continue to export', exact: true }).isDisabled(), true)
   await page.getByRole('button', { name: /^4 Export/ }).click()
   assert.equal(await page.getByRole('button', { name: 'Export audio', exact: true }).isDisabled(), true)
 
@@ -99,81 +274,348 @@ try {
   await page.keyboard.press('ArrowRight')
   assert.equal(await page.getByRole('tab', { name: 'Decomposer', exact: true }).getAttribute('aria-selected'), 'true')
   assert.equal(await page.getByLabel('Describe your analysis goal').inputValue(), '')
-  assert.equal(await page.getByLabel('Separate stems').isChecked(), true)
-  assert.equal(await page.getByLabel('Transcribe lyrics').isChecked(), true)
-  if (capture) {
-    await page.evaluate(() => document.activeElement?.blur())
-    await page.screenshot({ path: join(screenshots, 'decomposer-workspace.png'), scale: 'css', animations: 'disabled', caret: 'hide' })
-  }
+  assert.equal(await page.locator('#effects-panel').evaluate(element => element.hidden && element.childElementCount === 0), true, 'Hidden workspaces are not operable')
+  assert.equal(await page.locator('#decomposer-panel .setup-warning').count(), 0)
+  assert.equal(await page.getByRole('button', { name: /^Model: / }).count(), 0, 'Decomposer never implies a selected model')
+  assert.match(await page.locator('#decomposer-panel .model-summary').innerText(), /Local/)
+  assert.equal(await page.getByRole('button', { name: /Start local ComfyUI|Set up ComfyUI|^Generate/ }).count(), 0, 'Decomposer offers no generation or ComfyUI actions')
+  assert.match(await page.locator('.statusbar').innerText(), /Describe\s*Decompose\s*Refine/)
   await page.getByRole('button', { name: /Starlight verse & hook/ }).click()
   assert.match(await page.getByLabel('Describe your analysis goal').inputValue(), /lead vocal stem/)
   assert.equal(await page.getByLabel('Analysis focus').inputValue(), 'Lyrics & vocals')
-  await page.getByLabel('Reference tempo').fill('118')
-  await page.getByRole('button', { name: 'Continue to decomposition' }).click()
-  assert.equal(await page.getByRole('button', { name: 'Decompose track', exact: true }).isDisabled(), true)
-  assert.match(await page.locator('.summary-card').innerText(), /With lyrics/)
-  assert.match(await page.getByLabel('Planned analysis stages').innerText(), /Stem separation/)
-  await page.getByRole('button', { name: /Review & refine/ }).click()
-  assert.equal(await page.getByRole('button', { name: 'Play reference', exact: true }).isDisabled(), true)
-  assert.match(await page.getByLabel('Breakdown review layers').innerText(), /Lyric transcript/)
+  assert.equal(await page.getByRole('button', { name: 'Analyse selected excerpt' }).isDisabled(), true)
+  await page.getByRole('button', { name: 'Model Settings', exact: true }).click()
+  await page.getByRole('heading', { name: 'Local music decomposition' }).waitFor()
+  await page.getByRole('combobox', { name: 'Task', exact: true }).selectOption('music')
+  assert.match(await page.getByRole('dialog').innerText(), /ACE-Step 1.5 Turbo/)
+  await page.keyboard.press('Escape')
+  assert.equal(mock.prompts.length, 0, 'Analysis/settings navigation never starts generation')
   await page.getByRole('button', { name: /^4 Export/ }).click()
-  assert.equal(await page.getByRole('button', { name: 'Export breakdown', exact: true }).isDisabled(), true)
-  await page.getByRole('button', { name: /Send brief to Music workspace/ }).click()
+  await page.getByRole('button', { name: 'Send unanalysed intent to Music' }).click()
+  await page.getByRole('button', { name: 'Append to Music draft' }).click()
   assert.equal(await page.getByRole('tab', { name: 'Music', exact: true }).getAttribute('aria-selected'), 'true')
-  assert.equal(await page.getByLabel('Tempo').inputValue(), '118')
+  assert.equal(await page.getByLabel('Tempo').inputValue(), '85')
   assert.match(await page.getByLabel('Describe your music').inputValue(), /Lyrics & vocals/)
+  assert.match(await page.getByLabel('Describe your music').inputValue(), /lo-fi[\s\S]+Unanalysed intent/)
+  assert.equal(await page.getByLabel('Instrumental only').isChecked(), true, 'Append preserves generation settings')
   await page.getByLabel('Tempo').fill('85')
+  await page.getByLabel('Instrumental only').check()
   await page.getByRole('button', { name: /After-hours thinking/ }).click()
   await page.getByRole('button', { name: /^4 Export/ }).click()
 
   await page.getByRole('button', { name: 'Open library', exact: true }).click()
-  assert.equal(await page.getByRole('dialog', { name: 'Sound library' }).isVisible(), true)
-  await page.keyboard.press('Escape')
-  await page.getByRole('button', { name: /Backend not connected/ }).click()
-  assert.equal(await page.getByRole('heading', { name: 'No backend connected' }).isVisible(), true)
+  assert.match(await page.getByRole('dialog', { name: 'Sound library' }).innerText(), /No takes yet/)
   await page.keyboard.press('Escape')
   await page.getByRole('button', { name: 'Quick guide' }).click()
   assert.equal(await page.getByRole('dialog', { name: 'A small guide to the studio' }).isVisible(), true)
   await page.keyboard.press('Escape')
+
+  await backendButton(page).click()
+  const connections = page.getByRole('dialog', { name: 'Backend connections' })
+  assert.equal(await connections.getByRole('list', { name: 'Readiness checks' }).isVisible(), true)
+  assert.match(await check(connections, 'ComfyUI server').innerText(), /needs attention/)
+  assert.match(await check(connections, 'Music model').innerText(), /ACE-Step 1\.5 Turbo\. Checked once ComfyUI is running/)
+  // The fake install lives under the user's temporary folder, so its path is masked rather than published.
+  if (capture) await page.screenshot({ path: join(screenshots, 'backend-connections.png'), scale: 'css', animations: 'disabled', caret: 'hide', maskColor: '#2b3a52',
+    mask: [connections.getByLabel(/^ComfyUI folder/), check(connections, 'ComfyUI folder').locator('p')] })
+  await connections.getByLabel(/ComfyUI address/).fill('http://example.com:8188')
+  await connections.getByLabel(/ComfyUI address/).press('Enter')
+  await check(connections, 'ComfyUI server').getByText(/Only ComfyUI running on this device/).waitFor()
+  assert.equal(await page.getByRole('button', { name: /^Setup needs attention/ }).isVisible(), true)
+
+  // One-click start: the detected folder is prefilled, starting installs the WAV output node, and the canvas
+  // button launches on loopback and connects.
+  if (fakeComfy) {
+    assert.equal(await connections.getByLabel(/^ComfyUI folder/).inputValue(), fakeComfy.folder)
+    assert.equal(await connections.getByRole('button', { name: 'Start local ComfyUI' }).isDisabled(), false)
+    assert.match(await check(connections, 'Audio output node').innerText(), /Not installed yet/)
+    await connections.getByLabel(/ComfyUI address/).fill(fakeComfy.endpoint)
+    await connections.getByLabel(/ComfyUI address/).press('Enter')
+    await check(connections, 'ComfyUI server').getByRole('button', { name: 'Start', exact: true }).waitFor()
+    await page.keyboard.press('Escape')
+    // Declines the model download Sound Studio offers after one-click start, so the smoke never touches the network.
+    await app.evaluate(({ dialog }) => {
+      globalThis.downloadPrompts = []
+      dialog.showMessageBox = async (...args) => { globalThis.downloadPrompts.push(args.at(-1)); return { response: 1, checkboxChecked: false } }
+    })
+    await page.getByRole('button', { name: 'Start local ComfyUI' }).click()
+    await backendButton(page).click()
+    await check(connections, 'ComfyUI server').getByText(/ComfyUI 0\.3\.0-launched at .*, started by Sound Studio\./).waitFor({ timeout: 60_000 })
+    await check(connections, 'Effects model').getByRole('button', { name: 'Download' }).waitFor()
+    const prompts = await app.evaluate(() => globalThis.downloadPrompts)
+    assert.equal(prompts.length, 1, 'the missing default models are offered once')
+    assert.match(prompts[0].message, /^Download Stable Audio Open 1\.0, T5-base text encoder, and ACE-Step 1\.5 Turbo \(14\.7 GB\)\?/)
+    assert.match(prompts[0].detail, /Stability AI Community License[\s\S]*SHA-256/)
+    assert.match(await check(connections, 'Effects model').innerText(), /Stable Audio Open 1\.0 is not downloaded yet \(5\.4 GB\)/)
+    assert.match(await check(connections, 'Music model').innerText(), /ACE-Step 1\.5 Turbo is not downloaded yet \(9\.3 GB\)/)
+    assert.equal(await connections.getByRole('button', { name: /^Download models \(14\.7 GB\)/ }).isVisible(), true)
+    assert.equal(existsSync(join(fakeComfy.folder, 'models', 'checkpoints')), false, 'declining downloads nothing')
+    assert.match(await check(connections, 'Audio output node').innerText(), /Save Audio WAV \(Sound Studio\) is loaded/)
+    assert.match(await readFile(join(fakeComfy.folder, 'custom_nodes', 'sound_studio_nodes', '__init__.py'), 'utf8'), /^# Managed by Sound Studio/)
+    assert.match(await check(connections, 'Graphics processor').innerText(), /reports no GPU/)
+    assert.deepEqual(JSON.parse(await readFile(join(fakeComfy.folder, 'launch-args.json'), 'utf8')), ['--listen', '127.0.0.1', '--port', fakeComfy.port, '--disable-auto-launch'])
+    assert.match(await readFile(join(userData, 'logs', 'comfyui.log'), 'utf8'), /Sound Studio started ComfyUI[\s\S]*Fake ComfyUI listening on 127\.0\.0\.1/)
+    await connections.getByRole('button', { name: 'Stop ComfyUI' }).click()
+    await connections.getByText('ComfyUI stopped.').waitFor()
+    await check(connections, 'ComfyUI server').getByText('ComfyUI is not running.').waitFor()
+    assert.equal(await stopsAnswering(fakeComfy.endpoint), true, 'Stop ends the process Sound Studio started')
+  } else {
+    console.warn('Python was not found, so the ComfyUI launcher check was skipped.')
+  }
+  await connections.getByLabel(/ComfyUI address/).fill(mock.endpoint)
+  await connections.getByLabel(/ComfyUI address/).press('Enter')
+  await page.getByRole('button', { name: /^Local backends ready/ }).waitFor()
+  assert.match(await check(connections, 'ComfyUI server').innerText(), /ComfyUI 0\.3\.0-mock/)
+  assert.match(await check(connections, 'Graphics processor').innerText(), /Mock GPU \/ 16 GB/)
+  assert.match(await check(connections, 'Effects model').innerText(), /stable-audio-open-1\.0\.safetensors/)
+  assert.match(await check(connections, 'Music model').innerText(), /ace_step_1\.5_turbo_aio\.safetensors/)
+  await page.keyboard.press('Escape')
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(960, 700))
   await assertNoOverflow(page)
-  await page.getByRole('tab', { name: 'Effects', exact: true }).click()
-  assert.equal(await page.getByLabel('Describe your sound').inputValue(), 'Rain through a forest canopy')
-  assert.equal(await page.getByLabel('Seamless loop').isChecked(), true)
+  await assertHeaderMetrics(page, 960)
 
+  // Local generation through the Stable Audio graph.
+  await page.getByRole('tab', { name: 'Effects', exact: true }).click()
+  assert.equal(await page.getByLabel('Seamless loop').isChecked(), true)
+  await page.getByRole('button', { name: 'Continue to generation' }).click()
+  assert.equal(await page.getByRole('button', { name: 'Model: Local / Stable Audio Open 1.0. Ready. Open Model Settings' }).isVisible(), true)
+  models = await openModels(page)
+  await models.getByLabel(/^Checkpoint/).selectOption('sd_xl_base_1.0.safetensors')
+  await models.locator('details.advanced-settings summary').click()
+  assert.match(await models.getByRole('list', { name: 'Setup needed' }).innerText(), /does not look like/)
+  await models.getByRole('button', { name: 'Use stable-audio-open-1.0.safetensors instead' }).click()
+  await models.locator('.model-card .outline-badge', { hasText: 'READY' }).waitFor()
+  assert.equal(await models.locator('details.advanced-settings').evaluate(element => element.open), false, 'File correction remains available outside Advanced')
+  await page.keyboard.press('Escape')
+  assert.equal(await actionReason(page), 'Runs on your ComfyUI. Nothing leaves this device.')
+  await page.getByRole('button', { name: 'Generate sound', exact: true }).click()
+  await jobStatus(page, 'Completed')
+  const localPrompt = lastPrompt()
+  assert.equal(localPrompt.extra_data?.api_key_comfy_org, undefined, 'Local jobs never carry an API key')
+  assert.equal(Object.values(localPrompt.prompt).find(node => node.class_type === 'CheckpointLoaderSimple').inputs.ckpt_name, 'stable-audio-open-1.0.safetensors')
+  assert.equal(Object.values(localPrompt.prompt).some(node => node.class_type === 'SoundStudioSaveWAV'), true, 'Jobs save through the WAV node when ComfyUI has it')
+  assert.match(JSON.stringify(localPrompt.prompt), /Rain through a forest canopy/)
+  await page.getByRole('img', { name: 'Waveform of Forest ambience' }).waitFor()
+  assert.match(await page.locator('.canvas-toolbar').innerText(), /WAV \/ 44\.1 KHZ \/ MONO/)
+  await expectTakes(page, 1)
+  await page.getByRole('button', { name: 'Play take', exact: true }).click()
+  await page.getByRole('button', { name: 'Pause take', exact: true }).waitFor()
+  await page.getByRole('button', { name: 'Pause take', exact: true }).click()
+  await page.getByRole('button', { name: 'Play take', exact: true }).waitFor()
+
+  // Failures and cancellations stay honest and never create takes.
+  await writeBrief(page, { 'Describe your sound': 'FAIL on purpose' })
+  await page.getByRole('button', { name: 'Generate sound', exact: true }).click()
+  await jobStatus(page, 'Failed')
+  assert.match(await page.locator('.job-card:visible').innerText(), /Mock failure requested/)
+  await writeBrief(page, { 'Describe your sound': 'SLOW on purpose' })
+  await page.getByRole('button', { name: 'Generate sound', exact: true }).click()
+  await jobStatus(page, 'Generating')
+  assert.equal(await page.getByRole('button', { name: 'Generate sound', exact: true }).isDisabled(), true)
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await jobStatus(page, 'Cancelled')
+  await expectTakes(page, 1)
+
+  // Cloud partner models need an explicit opt-in and a stored key, and the key is only sent for partner jobs.
+  models = await openModels(page)
+  await models.getByRole('radio', { name: /^Mirelo SFX 2\.0/ }).check()
+  assert.match(await models.getByRole('list', { name: 'Setup needed' }).innerText(), /Enable cloud partner models/)
+  await page.keyboard.press('Escape')
+  assert.equal(await page.getByRole('button', { name: 'Generate sound', exact: true }).isDisabled(), true)
+  assert.equal(await actionReason(page), 'Finish model setup to generate.')
+  models = await openModels(page)
+  await models.locator('#cloud-key').fill(apiKey)
+  await models.getByRole('button', { name: 'Store key' }).click()
+  await models.getByText('API key stored.').waitFor()
+  assert.equal((await readFile(join(userData, 'cloud-access.json'), 'utf8')).includes(apiKey), false, 'The API key is never stored in plain text')
+  await models.getByRole('checkbox', { name: /Allow cloud partner models/ }).click()
+  await models.getByText('Cloud partner models enabled.').waitFor()
+  assert.equal(await models.getByRole('checkbox', { name: /Allow cloud partner models/ }).isChecked(), true)
+  const consentBeforeReset = await page.evaluate(() => window.soundStudio.getCloudStatus())
+  await models.getByRole('combobox', { name: 'Task', exact: true }).selectOption('music')
+  await models.getByRole('radio', { name: /^ACE-Step v1 3\.5B/ }).check()
+  await models.getByRole('button', { name: 'Use recommended setup', exact: true }).click()
+  assert.deepEqual(await page.evaluate(() => window.soundStudio.getCloudStatus()), consentBeforeReset, 'Recommended setup preserves cloud consent and encrypted key')
+  await models.getByRole('combobox', { name: 'Task', exact: true }).selectOption('effects')
+  await models.locator('.model-card .outline-badge', { hasText: 'READY' }).waitFor()
+  await page.keyboard.press('Escape')
+  assert.match(await page.locator('.statusbar').innerText(), /Cloud partner models enabled/)
+  await writeBrief(page, { 'Take name': 'Cloud rain', 'Describe your sound': 'Rain through a forest canopy' })
+  assert.match(await actionReason(page), /^Sends your prompt to Mirelo via Comfy\.org\. About \$\d+\.\d\d\.$/)
+  await page.getByRole('button', { name: 'Generate sound', exact: true }).click()
+  await jobStatus(page, 'Completed / CLOUD')
+  assert.equal(lastPrompt().extra_data?.api_key_comfy_org, apiKey)
+  assert.equal(Object.values(lastPrompt().prompt).some(node => node.class_type === 'MireloTextToSFX'), true)
+  await expectTakes(page, 2)
+  models = await openModels(page)
+  await models.getByRole('button', { name: 'Remove key' }).click()
+  await models.getByText('API key removed and cloud models disabled.').waitFor()
+  await models.getByRole('radio', { name: /^Stable Audio Open 1\.0/ }).check()
+  await page.keyboard.press('Escape')
+  assert.match(await page.locator('.statusbar').innerText(), /No cloud\. No uploads\./)
+
+  // Music: ACE-Step 1.5, then an imported MusicGen-style custom workflow.
   await page.getByRole('tab', { name: 'Music', exact: true }).click()
-  await page.waitForFunction(() => JSON.parse(localStorage.getItem('sound-studio.workspace.v1')).workspace === 'music')
+  await page.getByRole('button', { name: /^2 Generate/ }).click()
+  assert.equal(await actionReason(page), 'Runs on your ComfyUI. Nothing leaves this device.')
+  await page.getByRole('button', { name: 'Generate music', exact: true }).click()
+  await jobStatus(page, 'Completed')
+  const aceGraph = Object.values(lastPrompt().prompt)
+  assert.equal(aceGraph.find(node => node.class_type === 'TextEncodeAceStepAudio1.5').inputs.bpm, 85)
+  assert.equal(aceGraph.find(node => node.class_type === 'CheckpointLoaderSimple').inputs.ckpt_name, 'ace_step_1.5_turbo_aio.safetensors')
+
+  models = await openModels(page)
+  await models.getByRole('radio', { name: /^Custom ComfyUI workflow/ }).check()
+  assert.match(await models.getByRole('list', { name: 'Setup needed' }).innerText(), /Import a ComfyUI API workflow/)
+  const musicgen = {
+    1: { class_type: 'MusicgenGenerate', inputs: { prompt: '{{prompt}}', duration: '{{seconds}}', seed: '{{seed}}', bpm: '{{bpm}}' } },
+    2: { class_type: 'SaveAudio', inputs: { audio: ['1', 0], filename_prefix: 'musicgen' } }
+  }
+  await models.locator('#music-workflow-file').setInputFiles({ name: 'musicgen-small.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(musicgen)) })
+  await models.getByText(/musicgen-small \/ 2 nodes/).waitFor()
+  await models.locator('.model-card .outline-badge', { hasText: 'READY' }).waitFor()
+  await page.keyboard.press('Escape')
+  assert.equal(await page.getByRole('button', { name: 'Model: Workflow / musicgen-small. Ready. Open Model Settings' }).isVisible(), true)
+  models = await openModels(page, { advanced: false })
+  assert.equal(await models.locator('details.advanced-settings').evaluate(element => element.open), false)
+  assert.match(await models.locator('.model-card').innerText(), /musicgen-small[\s\S]*Your saved choice \/ Workflow/)
+  const customBeforeRefresh = await page.evaluate(() => localStorage.getItem('sound-studio.backend.v1'))
+  await models.getByRole('button', { name: 'Refresh', exact: true }).click()
+  await models.locator('.model-card .outline-badge', { hasText: 'READY' }).waitFor()
+  assert.equal(await page.evaluate(() => localStorage.getItem('sound-studio.backend.v1')), customBeforeRefresh)
+  assert.match(await models.locator('.computer-summary').innerText(), /total \/ .*free/)
+  await page.keyboard.press('Escape')
+  await page.getByRole('button', { name: 'Generate music', exact: true }).click()
+  await jobStatus(page, 'Completed')
+  const custom = lastPrompt().prompt
+  assert.equal(custom['1'].inputs.bpm, 85)
+  assert.equal(custom['1'].inputs.duration, 30)
+  assert.equal(typeof custom['1'].inputs.seed, 'number')
+  assert.match(custom['1'].inputs.prompt, /lo-fi/)
+  await expectTakes(page, 2)
+
+  // Export copies the validated audio and writes provenance beside it.
+  const exportPath = join(exportDir, 'after-hours.wav')
+  await app.evaluate(({ dialog }, filePath) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath }) }, exportPath)
+  await page.getByRole('button', { name: 'Review take' }).click()
+  await page.getByRole('button', { name: 'Continue to export', exact: true }).click()
+  await page.getByRole('button', { name: 'Export audio', exact: true }).click()
+  const exportFeedback = page.locator('.settings-panel:visible').locator('.success-text, .warning-text[role="alert"]')
+  await exportFeedback.waitFor()
+  assert.match(await exportFeedback.innerText(), /^Exported to .*after-hours\.wav with a \.provenance\.json record beside it\.$/)
+  assert.equal((await readFile(exportPath)).subarray(0, 4).toString(), 'RIFF')
+  const provenance = JSON.parse(await readFile(join(exportDir, 'after-hours.provenance.json'), 'utf8'))
+  assert.match(JSON.stringify(provenance), /musicgen-small/)
+  assert.match(JSON.stringify(provenance), /lo-fi/)
+
+  // The library lists every take, reports unreadable records without touching them, and deletes on confirmation.
+  const takesDir = join(userData, 'takes')
+  const garbage = join(takesDir, '00000000-0000-4000-8000-000000000000.json')
+  await writeFile(garbage, '{not a take')
+  await app.evaluate(({ dialog }) => { dialog.showMessageBox = async () => ({ response: 0, checkboxChecked: false }) })
+  await page.getByRole('button', { name: 'Open library', exact: true }).click()
+  const library = page.getByRole('dialog', { name: 'Sound library' })
+  assert.equal(await library.locator('.library-list li').count(), 4)
+  await library.getByRole('button', { name: 'Delete Cloud rain' }).click()
+  await library.getByText('Deleted "Cloud rain".').waitFor()
+  assert.equal(await library.locator('.library-list li').count(), 3)
+  assert.match(await library.innerText(), /1 take record could not be read/)
+  assert.equal(await readFile(garbage, 'utf8'), '{not a take')
+  assert.equal((await readdir(takesDir)).filter(name => name.endsWith('.wav')).length, 3)
+  await page.keyboard.press('Escape')
+
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem('sound-studio.workspace.v4')).workspace === 'music')
   await app.close()
   app = undefined
   page = await launch()
+  await page.getByRole('button', { name: /^Local backends ready/ }).waitFor({ timeout: 15_000 })
   assert.equal(await page.getByRole('tab', { name: 'Music', exact: true }).getAttribute('aria-selected'), 'true')
-  assert.equal(await page.getByRole('button', { name: 'Export audio', exact: true }).isDisabled(), true)
+  assert.equal(await page.getByRole('button', { name: 'Model: Workflow / musicgen-small. Ready. Open Model Settings' }).isVisible(), true)
+  await expectTakes(page, 2)
+  await page.getByRole('img', { name: /^Waveform of / }).waitFor()
   await page.getByRole('button', { name: /^1 Describe/ }).click()
   assert.equal(await page.getByLabel('Tempo').inputValue(), '85')
   assert.match(await page.getByLabel('Describe your music').inputValue(), /lo-fi/)
+  models = await openModels(page, { advanced: false })
+  assert.equal(await models.locator('details.advanced-settings').evaluate(element => element.open), false, 'Relaunch preserves the custom workflow without expanding Advanced')
+  assert.match(await models.locator('.model-card').innerText(), /musicgen-small[\s\S]*Your saved choice/)
+  assert.equal(await models.evaluate(element => element.scrollWidth <= element.clientWidth), true, 'Settings fit the minimum window width')
+  await page.keyboard.press('Escape')
+  await page.getByRole('tab', { name: 'Decomposer', exact: true }).click()
+  assert.equal(await page.getByRole('button', { name: 'Send unanalysed intent to Music' }).isVisible(), true)
+  await page.getByRole('button', { name: /^1 Import & plan/ }).click()
+  assert.equal(await page.getByLabel('Analysis focus').inputValue(), 'Lyrics & vocals')
+  await page.getByRole('tab', { name: 'Music', exact: true }).click()
+
+  // The same renderer with no preload bridge must never fabricate computer specifications.
+  const previewWindow = app.waitForEvent('window')
+  await app.evaluate(async ({ BrowserWindow }, file) => {
+    const preview = new BrowserWindow({ show: false, width: 960, height: 700, webPreferences: {
+      sandbox: true, contextIsolation: true, nodeIntegration: false, partition: 'sound-preview-smoke'
+    } })
+    await preview.loadFile(file)
+  }, resolve('out/renderer/index.html'))
+  const preview = await previewWindow
+  await preview.getByRole('button', { name: 'Model Settings', exact: true }).click()
+  const previewModels = preview.getByRole('dialog', { name: 'Model Settings', exact: true })
+  await previewModels.getByText('Computer details unavailable in browser preview. Open the desktop app to measure this device.').waitFor()
+  assert.equal(await previewModels.getByRole('button', { name: 'Refresh', exact: true }).isDisabled(), true)
+  assert.equal(await previewModels.getByText('System RAM', { exact: true }).count(), 0)
+  assert.equal(await previewModels.locator('details.advanced-settings').evaluate(element => element.open), false)
+  assert.equal(await previewModels.evaluate(element => element.scrollWidth <= element.clientWidth), true)
+  await preview.keyboard.press('Escape')
+  for (const width of [600, 360]) {
+    await preview.setViewportSize({ width, height: 700 })
+    assert.equal(await preview.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, `Narrow ${width}px preview must not overflow`)
+    assert.equal(await preview.locator('.topbar-actions > .subtle-button').evaluate(element => getComputedStyle(element).fontSize), '0px')
+    const header = await preview.locator('.topbar').boundingBox()
+    const tabs = await preview.locator('.workspace-tabs').boundingBox()
+    assert.ok(tabs.y > header.y + 40, 'Narrow-preview tabs remain on the second header row')
+    assert.equal(await preview.getByRole('button', { name: 'Model Settings', exact: true }).isVisible(), true)
+  }
+  await preview.setViewportSize({ width: 1440, height: 1000 })
+  await preview.evaluate(() => { document.documentElement.style.zoom = '1.25' })
+  assert.equal(await preview.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, 'Header remains within the viewport at 125% zoom')
+  await preview.close()
 
   await page.evaluate(() => {
     Storage.prototype.setItem = () => { throw new DOMException('Storage quota exceeded', 'QuotaExceededError') }
   })
   await page.getByLabel('Describe your music').fill('Still editable when storage is full')
-  await page.getByRole('alert').waitFor()
-  assert.match(await page.getByRole('alert').innerText(), /could not be saved/)
-  assert.match(await page.locator('.saved-state').innerText(), /memory only/)
+  await page.locator('.error-banner').waitFor()
+  assert.match(await page.locator('.error-banner').innerText(), /could not be saved/)
+  assert.match(await page.locator('.saved-state:visible').innerText(), /memory only/)
   await page.reload()
   await page.getByLabel('Describe your music').waitFor()
   assert.match(await page.getByLabel('Describe your music').inputValue(), /lo-fi/)
 
-  await page.evaluate(() => localStorage.setItem('sound-studio.workspace.v1', '{broken'))
+  await page.evaluate(() => localStorage.setItem('sound-studio.workspace.v4', '{broken'))
   await page.reload()
-  await page.getByRole('alert').waitFor()
-  assert.match(await page.getByRole('alert').innerText(), /Could not load/)
-  assert.equal(await page.evaluate(() => localStorage.getItem('sound-studio.workspace.v1')), '{broken')
+  await page.locator('.error-banner').waitFor()
+  assert.match(await page.locator('.error-banner').innerText(), /Could not load/)
+  assert.equal(await page.evaluate(() => localStorage.getItem('sound-studio.workspace.v4')), '{broken')
   await page.getByLabel('Describe your sound').fill('Unsaved but still editable')
-  assert.match(await page.locator('.saved-state').innerText(), /memory only/)
-  assert.equal(await page.evaluate(() => localStorage.getItem('sound-studio.workspace.v1')), '{broken')
-  assert.deepEqual(errors, [], 'No renderer errors or CSP violations')
-  console.log('Desktop smoke passed: both workspaces, drafts, navigation, dialogs, disabled placeholders, relaunch persistence, corrupt-storage handling, and minimum window size.')
+  assert.match(await page.locator('.saved-state:visible').innerText(), /memory only/)
+  assert.equal(await page.evaluate(() => localStorage.getItem('sound-studio.workspace.v4')), '{broken')
+
+  // The dialog's start button, and quitting stops only the ComfyUI that Sound Studio started.
+  if (fakeComfy) {
+    await backendButton(page).click()
+    const backendDialog = page.getByRole('dialog', { name: 'Backend connections' })
+    await backendDialog.getByRole('button', { name: 'Disconnect' }).click()
+    await backendDialog.getByLabel(/ComfyUI address/).fill(fakeComfy.endpoint)
+    await backendDialog.getByRole('button', { name: 'Start local ComfyUI' }).click()
+    await check(backendDialog, 'ComfyUI server').getByText(/started by Sound Studio/).waitFor({ timeout: 60_000 })
+    await app.close()
+    app = undefined
+    assert.equal(await stopsAnswering(fakeComfy.endpoint), true, 'Quitting stops the ComfyUI Sound Studio started')
+    assert.equal(await reachable(mock.endpoint), true, 'A ComfyUI started elsewhere is never stopped')
+  }  assert.deepEqual(errors, [], 'No renderer errors or CSP violations')
+  console.log(`Desktop smoke passed against a mock ComfyUI (${mock.prompts.length} prompts): connection policy, ${fakeComfy ? 'starting and stopping a ComfyUI install, ' : ''}local, failed, cancelled, cloud opt-in and custom-workflow jobs, playback, export with provenance, library delete, Decomposer planning and handoff, relaunch persistence, corrupt-storage handling and minimum window size.`)
 } finally {
   if (app) await app.close()
+  await mock.close()
   await rm(userData, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 })
+  await rm(exportDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 })
+  await rm(localAppData, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 })
 }
