@@ -12,10 +12,10 @@ import {
   type JobState, type TakeRecord
 } from '../shared/generation'
 import {
-  buildVariationBrief, effectCategories, examples, isGenerationWorkspace, musicGenres, musicKeys, musicMoods, steps, workspaces,
+  effectCategories, examples, isGenerationWorkspace, musicGenres, musicKeys, musicMoods, steps, workspaces,
   type Draft, type Step, type StudioWorkspace, type Workspace
 } from '../shared/workspace'
-import { DecomposerWorkspace } from './DecomposerWorkspace'
+import { Decomposer, DecomposerModels } from './Decomposer'
 import { Dialog } from './Dialog'
 import { BackendConnections } from './BackendConnections'
 import { ModelDownloadPanel } from './ModelDownloadPanel'
@@ -35,8 +35,10 @@ export function App() {
   const { state, setState, storageError } = useStudioState()
   const backend = useBackend()
   const [surface, setSurface] = useState<Surface>(null)
-  const [modelWorkspace, setModelWorkspace] = useState<Workspace>('effects')
+  const [modelWorkspace, setModelWorkspace] = useState<StudioWorkspace>('effects')
   const [notice, setNotice] = useState('')
+  const [handoff, setHandoff] = useState<{ title: string; prompt: string; tempo: string; duration: string; instrumental: boolean } | null>(null)
+  const [runtimeRevision, setRuntimeRevision] = useState(0)
   const [feedback, setFeedback] = useState<Feedback>(null)
   const [selectedTakes, setSelectedTakes] = useState<Record<Workspace, string | null>>({ effects: null, music: null })
   const [starting, setStarting] = useState(false)
@@ -85,13 +87,20 @@ export function App() {
     setNotice('')
   }
 
-  function sendBriefToMusic() {
+  function applyHandoff(append: boolean) {
+    if (!handoff) return
+    const prompt = append && state.drafts.music.prompt ? `${state.drafts.music.prompt}\n\n${handoff.prompt}` : handoff.prompt
+    if (prompt.length > 200000) {
+      setNotice('The full brief exceeds the Music draft limit. Export the structured analysis instead; nothing was truncated or replaced.')
+      return
+    }
     setState(current => ({
       ...current,
       workspace: 'music',
-      drafts: { ...current.drafts, music: { ...current.drafts.music, ...buildVariationBrief(current.drafts.decomposer), step: 'brief' } }
+      drafts: { ...current.drafts, music: { ...current.drafts.music, ...(append ? { prompt } : { ...handoff, prompt }), step: 'brief' } }
     }))
-    setNotice('Decomposer brief transferred to the Music workspace. No audio was generated.')
+    setHandoff(null)
+    setNotice('Decomposer brief transferred with your approval. Model prompt limits still apply; nothing was truncated.')
   }
 
   function navigateTabs(event: KeyboardEvent<HTMLElement>) {
@@ -108,7 +117,7 @@ export function App() {
   }
 
   function openModels() {
-    setModelWorkspace(workspace)
+    setModelWorkspace(studioWorkspace)
     setSurface('models')
   }
 
@@ -195,8 +204,8 @@ export function App() {
       </nav>
       <div className="topbar-actions">
         <button className="subtle-button" onClick={openModels} aria-haspopup="dialog"><SlidersHorizontal size={15} /> Model Settings</button>
-        <button className={`backend-button ${summary.tone === 'warning' && backend.available ? 'warning' : ''}`} onClick={() => setSurface('connections')} aria-haspopup="dialog">
-          <span className={`status-dot ${!backend.available ? '' : summary.tone === 'ready' ? 'blue' : summary.tone === 'pending' ? 'starting' : 'warn'}`} /> {backendLabel} <ChevronRight size={13} /></button>
+        <button className={`backend-button ${!isDecomposer && summary.tone === 'warning' && backend.available ? 'warning' : ''}`} onClick={() => isDecomposer ? openModels() : setSurface('connections')} aria-haspopup="dialog">
+          <span className={`status-dot ${isDecomposer || !backend.available ? '' : summary.tone === 'ready' ? 'blue' : summary.tone === 'pending' ? 'starting' : 'warn'}`} /> {isDecomposer ? 'Local analysis' : backendLabel} <ChevronRight size={13} /></button>
         <button className="icon-button" aria-label="Quick guide" onClick={() => setSurface('help')} aria-haspopup="dialog"><CircleHelp size={18} /></button>
       </div>
     </header>
@@ -206,9 +215,12 @@ export function App() {
     <div id="workspace" className="workspace-host">
       {workspaces.map(tab => <div key={tab.id} id={`${tab.id}-panel`} role="tabpanel"
         aria-labelledby={`${tab.id}-tab`} hidden={studioWorkspace !== tab.id} className="workspace-layout">
-        {studioWorkspace === tab.id && (tab.id === 'decomposer' ? <DecomposerWorkspace draft={state.drafts.decomposer} label={tab.label}
-          mainRef={mainRef} notice={notice} libraryCount={backend.takes.length} storageError={storageError}
-          onUpdate={updateDraft} onStep={selectStep} onNotice={setNotice} onLibrary={() => setSurface('library')} onSendToMusic={sendBriefToMusic} /> : <>
+        {tab.id === 'decomposer' ? <Decomposer draft={state.drafts.decomposer} config={state.decomposition}
+          visible={isDecomposer} runtimeRevision={runtimeRevision}
+          updateDraft={patch => setState(current => ({ ...current, drafts: { ...current.drafts, decomposer: { ...current.drafts.decomposer, ...patch } } }))}
+          updateConfig={patch => setState(current => ({ ...current, decomposition: { ...current.decomposition, ...patch } }))}
+          openModels={() => { setModelWorkspace('decomposer'); setSurface('models') }} sendToMusic={setHandoff} storageError={storageError} />
+          : studioWorkspace === tab.id && <>
           <aside className="settings-panel" aria-label={`${tab.label} step settings`}>
             <div className="step-kicker"><span className="eyebrow">0{stepIndex + 1} / {steps[stepIndex].label}</span><span className="mini-badge">{executionBadge(profile.execution)}</span></div>
             <h1>{draft.step === 'brief' ? isMusic ? 'Music studio' : 'Sound effects' : steps[stepIndex].label}</h1>
@@ -220,7 +232,7 @@ export function App() {
               <input id="draft-title" maxLength={120} value={draft.title} placeholder={isMusic ? 'An untold story' : 'An undiscovered sound'} onChange={event => updateDraft({ title: event.target.value })} />
 
               <label className="field-label" htmlFor="prompt">{isMusic ? 'Describe your music' : 'Describe your sound'} <span className={draft.prompt.length > profile.maxPromptChars ? 'warning-inline' : ''}>{draft.prompt.length}/{profile.maxPromptChars}</span></label>
-              <textarea id="prompt" maxLength={4000} value={draft.prompt} placeholder={isMusic
+              <textarea id="prompt" maxLength={isMusic ? 200000 : 4000} value={draft.prompt} placeholder={isMusic
                 ? 'A feeling, an instrument, a world to get lost in...'
                 : 'What do you hear? Describe the source, setting, texture and feeling...'} onChange={event => updateDraft({ prompt: event.target.value })} />
               <p className="field-hint">The more you imagine, the more there is to work with.</p>
@@ -366,14 +378,17 @@ export function App() {
                 : <div className="empty-takes"><Layers3 size={19} /><span>No takes yet. Your generated {isMusic ? 'music' : 'sounds'} will find a home here.</span><span className="local-tag"><ShieldCheck size={12} /> STORED ON YOUR DEVICE</span></div>}
             </section>
           </main>
-        </>)}
+        </>}
       </div>)}
     </div>
 
     <footer className="statusbar"><span><ShieldCheck size={13} /> LOCAL FIRST <span className="footer-divider">/</span><span>{backend.cloud?.enabled ? 'Cloud partner models enabled' : 'No cloud. No uploads.'}</span></span><span className="footer-flow">Describe <ChevronRight size={10} /> {isDecomposer ? 'Decompose' : 'Generate'} <ChevronRight size={10} /> Refine <ChevronRight size={10} /> Export</span><span><span className="status-dot blue" /> PREVIEW <span className="footer-divider">/</span> v{version}</span></footer>
 
-    {surface === 'models' && <Dialog title="Model Settings" eyebrow="YOUR LOCAL ENGINE" drawer onClose={() => setSurface(null)}>
-      <ModelSettings backend={backend} workspace={modelWorkspace} onWorkspace={setModelWorkspace} />
+    {surface === 'models' && <Dialog title="Model Settings" eyebrow="YOUR LOCAL ENGINE" drawer onClose={() => { setSurface(null); setRuntimeRevision(value => value + 1) }}>
+      <div className="segmented" aria-label="Model workspace">{workspaces.map(tab =>
+        <button key={tab.id} aria-pressed={modelWorkspace === tab.id} onClick={() => setModelWorkspace(tab.id)}>{tab.label}</button>)}</div>
+      {modelWorkspace === 'decomposer' ? <DecomposerModels />
+        : <ModelSettings backend={backend} workspace={modelWorkspace} />}
     </Dialog>}
 
     {surface === 'connections' && <Dialog title="Backend connections" eyebrow="LOCAL INFRASTRUCTURE" onClose={() => setSurface(null)}>
@@ -382,6 +397,7 @@ export function App() {
 
     {surface === 'library' && <Dialog title="Sound library" eyebrow="YOUR COLLECTION" drawer onClose={() => setSurface(null)}>
       <p className="dialog-intro">Every take you have generated, stored on this device.</p>
+      <button className="secondary-button" onClick={() => { setSurface(null); selectWorkspace('decomposer') }}>Open Decomposer analysis library</button>
       {backend.takesError && <p className="warning-text" role="alert"><AlertTriangle size={14} /> {backend.takesError}</p>}
       {!!backend.unreadableTakes && <p className="warning-text"><AlertTriangle size={14} /> {backend.unreadableTakes} take record{backend.unreadableTakes === 1 ? '' : 's'} could not be read and {backend.unreadableTakes === 1 ? 'was' : 'were'} left untouched.</p>}
       {feedback?.workspace === 'all' && <p className={feedback.error ? 'warning-text' : 'success-text'} role={feedback.error ? 'alert' : 'status'}>{feedback.text}</p>}
@@ -401,9 +417,15 @@ export function App() {
       <p className="dialog-intro">Three workspaces. One place to find and understand your sound.</p>
       <div className="guide-item"><AudioLines size={20} /><div><h3>Effects for the little details</h3><p>Describe ambience, foley, interface sounds or something entirely new. Choose a category and sketch your timing.</p></div></div>
       <div className="guide-item"><Music2 size={20} /><div><h3>Music for the bigger picture</h3><p>Set a genre, mood, tempo and key, and add lyrics when your model can sing.</p></div></div>
-      <div className="guide-item"><Layers3 size={20} /><div><h3>Decomposer for studying existing music</h3><p>Plan stem separation, tempo and harmony analysis and lyric transcription, then send a variation brief to Music. Audio import and analysis are not connected yet.</p></div></div>
+      <div className="guide-item"><Layers3 size={20} /><div><h3>Decomposer for studying existing music</h3><p>Import existing audio, analyse an excerpt locally, review estimates and export stems, lyrics, MIDI and a musical brief. Models require explicit installation; estimates and sung lyrics need human review.</p></div></div>
       <div className="guide-item"><Settings2 size={20} /><div><h3>Bring your own ComfyUI</h3><p>Install ComfyUI and a model. Sound Studio can start ComfyUI for you from Backend, or connect to one you started. Choose models in Model Settings.</p></div></div>
       <div className="guide-item"><Clock3 size={20} /><div><h3>Your ideas stay with you</h3><p>Drafts and takes are saved on this device. Cloud partner models are off unless you turn them on.</p></div></div>
+    </Dialog>}
+    {handoff && <Dialog title="Send brief to Music" eyebrow="PRESERVE YOUR EXISTING DRAFT" onClose={() => setHandoff(null)}>
+      <p className="dialog-intro">Transfer {handoff.prompt.length.toLocaleString()} characters. Your Music draft is unchanged until you choose. Append preserves its settings; replace uses analysis settings. Generation still requires a brief within the selected model's limits.</p>
+      <pre className="handoff-preview">{handoff.prompt}</pre>
+      <div className="export-actions"><button className="primary" onClick={() => applyHandoff(true)}>Append to Music draft</button><button className="secondary-button" onClick={() => applyHandoff(false)}>Replace Music draft</button><button onClick={() => setHandoff(null)}>Cancel transfer</button></div>
+      {notice && <p role="status">{notice}</p>}
     </Dialog>}
   </div>
 }

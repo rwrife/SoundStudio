@@ -6,7 +6,7 @@ Sound Studio is an Electron, React and TypeScript desktop app for AI sound effec
 
 **Implemented:**
 - Effects and Music workspaces with independent drafts.
-- A Decomposer workspace for planning reference-track breakdowns and sending a text brief to Music. It is a planning placeholder: it has no model, readiness check or generation path.
+- Decomposer: secure local import, waveform/playback, excerpt analysis, optional stems/lyrics/MIDI, editable findings, saved analyses and non-overwriting exports. It analyses existing recordings, never generates music; see the [Decomposer guide](docs/DECOMPOSER.md).
 - A loopback-only ComfyUI connection with version, device and model-file checks.
 - Starting and stopping your own ComfyUI install with one click.
 - Confirmed, SHA-256-verified downloads of the default local models into that install.
@@ -21,8 +21,8 @@ Sound Studio is an Electron, React and TypeScript desktop app for AI sound effec
 
 **Not implemented:**
 - Installing or updating ComfyUI, starting the ComfyUI Desktop app, and downloading models other than the default local ones below.
-- Music decomposition: reference audio import, stem separation, tempo and harmony analysis and lyric transcription.
-- Audio import, editing, variations, loop refinement or loudness processing.
+- Verified full-precision Qwen2-Audio inference: that separate experimental profile exceeds the development host's RAM budget. Local quantized Qwen2.5-Omni descriptions are available as an explicit alternative.
+- General-purpose audio editing, variations, loop refinement or loudness processing.
 - Project files, search, packaging and an MCP server.
 
 Sound Studio never fakes audio. If ComfyUI is unavailable, a model is missing or a job fails, you see that state rather than a placeholder take.
@@ -87,7 +87,7 @@ Sound Studio only stops a ComfyUI it started itself. Console output goes to `log
 
 ## Models
 
-Effects and Music each have their own model choice; the Decomposer has none yet and shows **Analysis models / Not connected**, and Model Settings opened from it shows Effects. The defaults are Stable Audio Open 1.0 for Effects and ACE-Step 1.5 Turbo for Music, and most people never need to change them. Model Settings shows the current model, its readiness and a download button when its files are missing. Choosing another model, a specific file, a custom workflow or a cloud partner model is under **Advanced** in Model Settings. Advanced starts collapsed unless you have already changed something there. It lists models in three groups and shows readiness, length limits, lyrics and key support, hardware fit, license and source.
+Effects and Music each have their own generation model choice. Decomposer has separate local analysis profiles in the same Model Settings drawer; opening it never selects a generation model. The generation defaults are Stable Audio Open 1.0 for Effects and ACE-Step 1.5 Turbo for Music. Their settings show the current model, readiness and missing-file downloads. Other models, files, custom workflows and cloud partners remain under **Advanced**, initially collapsed unless customized, with limits, hardware guidance, license and source.
 
 ### Download the default models
 
@@ -162,9 +162,9 @@ Write a musical brief and choose genre, mood, duration and tempo. Choose a key w
 
 ### Decomposer
 
-Write an analysis name and breakdown goal, choose an analysis focus (`Full breakdown`, `Stems & arrangement`, `Tempo & harmony`, `Lyrics & vocals` or `Variation brief`), set character/mood, excerpt window and reference tempo, and toggle stem separation and lyric transcription intentions. Sample breakdowns cover synthwave stem and groove study, harmonic movement analysis and vocal/lyric transcription planning.
+Install the local analysis runtime in **Model Settings > Decomposer**, import a recording you may process, choose an excerpt and select optional stems, lyrics, notes or audio descriptions. DSP timing/harmony analysis is always included. Model downloads require explicit confirmation; unavailable stages fail rather than returning fake findings.
 
-Options are draft intentions, not promises of model support. There is deliberately no executable analysis contract yet, and the Decomposer never reaches model selection, readiness checks, downloads or ComfyUI. Numeric fields may retain incomplete or out-of-range edits; future inference adapters must validate their actual model-specific constraints before execution.
+Review the original mix, actual stems, lyric timings and estimates, then save corrections separately from raw machine output. The [Decomposer guide](docs/DECOMPOSER.md) covers supported formats, runtime/model limits, export formats, uncertainty and real-output validation. Choose **Qwen2.5-Omni Q4** explicitly for local qualitative descriptions after installing its profile; saved selections are never changed automatically. The separate full-precision Qwen2-Audio profile remains unverified.
 
 ### Steps
 
@@ -175,7 +175,7 @@ Options are draft intentions, not promises of model support. There is deliberate
 
 Navigating to a step never marks work complete. Each workspace runs one job at a time. Jobs live in the running app; if you close it, ComfyUI may still finish the job, but the result is not collected as a take.
 
-In the Decomposer the same four steps plan a breakdown instead: **Decompose** lists the planned analysis stages, **Review & refine** lists the review layers, and every audio action stays disabled with the reason "Not available yet". From its Export step, **Send brief to Music workspace** transfers a structured variation brief, mood, duration, tempo and vocal intention into Music's Describe step. No audio is generated or analyzed. Effects, Music and Decomposer keep their drafts and selected steps independently.
+Decomposer uses **Import & plan**, **Analyse**, **Review & refine** and **Export**. Navigation never runs a job. **Send saved reviewed brief to Music** uses saved reviewed evidence; without an analysis it is clearly labeled **unanalysed intent**. Append/replace confirmation protects the existing Music draft. Large briefs are retained without truncation, but must be deliberately shortened to the generation model's limits before generating. All workspaces keep independent drafts and steps.
 
 ## Takes, export and provenance
 
@@ -187,15 +187,16 @@ Takes are stored in the app profile under `takes/`. Each has an audio file and a
 
 ## Storage and privacy
 
-- **Drafts:** local storage under `sound-studio.workspace.v1`, schema version 2. All three drafts, the selected tab and each selected step are saved. Version 1 drafts migrate automatically, and saved data without a Decomposer draft gets the default one.
+- **Drafts:** `sound-studio.workspace.v4`, schema version 4. Migrations preserve generation lyrics/key and Decomposer stage selections from v3 and both earlier v2 shapes. Existing caption selections remain full-precision Qwen2-Audio; the native profile requires explicit selection. The v3, v2 and v1 keys are read only when v4 is absent, in that order, and are left intact. Unsupported/corrupt states, including empty saved data, are not overwritten. Analysis job records similarly migrate v1 to v2 without replacing completed legacy records on read.
 - **Connection and model choices:** `sound-studio.backend.v1`.
 - **Chosen ComfyUI folder:** `comfyui-launcher.json` in the profile, with the ComfyUI console log in `logs\comfyui.log`.
 - **Cloud key:** encrypted in the profile, as described above.
 - **Takes:** the profile's `takes` folder.
+- **Analyses:** the profile's `decomposer` folder; managed analysis runtime/models in `decomposer-runtime`. Raw findings and user corrections remain separate.
 
 Drafts and choices are unencrypted convenience storage, not a portable project format or backup. Do not put credentials in prompts.
 
-With cloud partner models off, nothing leaves this device except requests to your loopback ComfyUI. There is no telemetry.
+Model/runtime acquisition contacts upstream download services only after confirmation. Decomposer inference is network-blocked after acquisition and never uses cloud partners. Generation cloud partners remain separately opt-in. There is no telemetry.
 
 If saved data cannot be read or has an unknown format, an error banner appears and the stored copy is preserved. New edits stay in memory and do not overwrite it. If writes fail, the app says edits are not saved. To recover, first copy any needed text. Then open developer tools with Ctrl+Shift+I, inspect Application > Local Storage, back up or remove only the affected key, and reload.
 
@@ -210,7 +211,7 @@ If saved data cannot be read or has an unknown format, an error banner appears a
 | `tests` | Unit tests for drafts, generation contracts and audio parsing. |
 | `scripts` | The Electron smoke test, a mock ComfyUI test fixture and screenshot capture. |
 
-Electron uses context isolation, sandboxing and disabled Node integration. Window-open requests, navigation, webviews and permission requests are denied. The content security policy limits the renderer to app resources and blob audio.
+Electron uses context isolation, sandboxing and disabled Node integration. Window-open requests, navigation, webviews and permission requests are denied. The content security policy limits the renderer to app resources, blob audio and the registered, validated `soundstudio:` media scheme.
 
 Every IPC call is validated again in the main process: loopback endpoints, generation requests, custom workflows and take IDs. The main process builds the ComfyUI graph, sends it, follows progress over WebSocket and history polling, and downloads and validates the output. The renderer never receives the API key or arbitrary file paths.
 
@@ -236,11 +237,13 @@ npm run test:desktop
 - Local, failed and cancelled jobs.
 - Cloud opt-in and API-key handling.
 - ACE-Step and custom workflow graphs.
-- Decomposer planning, its disabled actions and the brief handoff to Music.
+- Decomposer/generation navigation, isolated settings and explicit append/replace handoff without truncation.
 - Playback, export with provenance and library delete.
 - Relaunch persistence, corrupt storage and the minimum window size.
 
-**The smoke test proves Sound Studio's job handling, not model output quality.** Check real generation against your own ComfyUI. The smoke test needs a graphical desktop session but no GPU or models.
+The same command also runs `scripts/decomposer-smoke.mjs`. With the explicitly acquired core runtime in `.runtime`, it exercises real decoding/DSP, playback, corrections, exports, cancellation and missing models. Without that runtime it reports the unrun DSP scenario, rather than claiming success. See the [Decomposer validation instructions](docs/DECOMPOSER.md#development-and-validation).
+
+**Synthetic audio and mock ComfyUI prove contracts, not ML output quality.** Check real generation against your own ComfyUI. Separate real Decomposer model evidence and attribution are documented in its guide.
 
 Capture the actual app for documentation:
 
@@ -248,7 +251,7 @@ Capture the actual app for documentation:
 npm run screenshots
 ```
 
-This runs the same checks and writes `effects-workspace.png`, `model-settings.png`, `music-workspace.png`, `decomposer-workspace.png` and `backend-connections.png` to `docs/screenshots`. They are captured before connecting to the mock, so they never show test-fixture audio. Inspect captures before committing; never use mockups as evidence of working generation or decomposition.
+This runs the same checks and captures actual app windows in `docs/screenshots`. Generation captures happen before connecting to mock ComfyUI. Decomposer's DSP capture uses a clearly named synthetic fixture, not model output; `stem-playback-smoke.mjs` captures actual separated stems. Inspect captures and retain attribution; never use fixtures as ML evidence.
 
 ## Troubleshooting
 

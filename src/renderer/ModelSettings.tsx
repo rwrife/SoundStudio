@@ -18,7 +18,7 @@ const groups: ReadonlyArray<{ execution: Execution; title: string; detail: strin
 
 export const executionBadge = (execution: Execution) => execution === 'local' ? 'LOCAL' : execution === 'cloud' ? 'CLOUD' : 'WORKFLOW'
 
-export function ModelSettings({ backend, workspace, onWorkspace }: { backend: Backend; workspace: Workspace; onWorkspace: (workspace: Workspace) => void }) {
+export function ModelSettings({ backend, workspace }: { backend: Backend; workspace: Workspace }) {
   const choice = backend.settings.models[workspace]
   const profile = modelProfiles[choice.profileId]
   const readiness = backend.readiness[workspace]
@@ -32,9 +32,7 @@ export function ModelSettings({ backend, workspace, onWorkspace }: { backend: Ba
   const [advanced, setAdvanced] = useState(customized)
 
   return <>
-    <p className="dialog-intro">Each workspace comes with a recommended local model, downloaded into your ComfyUI with one click. Prompts and audio stay on this device. To use a different model, file or workflow, open Advanced.</p>
-    <div className="segmented" aria-label="Model workspace">{(['effects', 'music'] as const).map(tab =>
-      <button key={tab} aria-pressed={workspace === tab} onClick={() => onWorkspace(tab)}>{tab === 'effects' ? 'Effects' : 'Music'}</button>)}</div>
+    <p className="dialog-intro">Effects and Music each have a recommended local model, downloaded into your ComfyUI with one click. Prompts and audio stay on this device. To use a different model, file or workflow, open Advanced.</p>
     {backend.settingsError && <p className="warning-text" role="alert"><AlertTriangle size={14} /> {backend.settingsError}</p>}
 
     <div className="model-card">

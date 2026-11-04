@@ -1,0 +1,11 @@
+-r requirements-core.txt
+--extra-index-url https://download.pytorch.org/whl/cpu
+demucs==4.1.0
+torch==2.6.0+cpu
+sphn==0.1.12
+julius==0.2.7
+einops==0.8.1
+lameenc==1.8.1
+PyYAML==6.0.2
+huggingface-hub==0.30.2
+safetensors==0.5.3

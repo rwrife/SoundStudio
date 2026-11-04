@@ -32,13 +32,18 @@ test('saved drafts round trip with their selected workspace and step, including 
   assert.deepEqual(parseStudioState(JSON.stringify(state)), state)
 
   const { decomposer: _decomposer, ...withoutDecomposer } = state.drafts
-  for (const version of [1, studioStateVersion]) {
+  for (const version of [1, 2]) {
     const migrated = parseStudioState(JSON.stringify({ version, workspace: 'music', drafts: withoutDecomposer }))
     assert.equal(migrated.version, studioStateVersion)
     assert.equal(migrated.workspace, 'music')
     assert.deepEqual(migrated.drafts.decomposer, createInitialState().drafts.decomposer)
     assert.deepEqual(migrated.drafts.music, state.drafts.music)
   }
+  const oldDecomposer = { ...state, version: 1, decomposition: undefined }
+  const upgraded = parseStudioState(JSON.stringify(oldDecomposer))
+  assert.deepEqual(upgraded.drafts, state.drafts)
+  assert.deepEqual(upgraded.decomposition.stems, ['vocals', 'drums', 'bass', 'other'])
+  assert.equal(upgraded.decomposition.lyrics, 'tiny')
 })
 
 test('in-progress numeric edits are preserved as drafts, not silently changed', () => {
@@ -76,9 +81,46 @@ test('migrates version 1 drafts by adding empty lyrics and a default key', () =>
   assert.throws(() => parseStudioState(JSON.stringify({ ...v1, version: 2 })), 'version 2 drafts must already include lyrics and key')
 
   const v1WithDecomposer = { ...v1, workspace: 'decomposer', drafts: { ...v1.drafts, decomposer: strip(current.drafts.decomposer) } }
-  assert.deepEqual(parseStudioState(JSON.stringify(v1WithDecomposer)), { ...current, workspace: 'decomposer' })
+  const withDecomposer = parseStudioState(JSON.stringify(v1WithDecomposer))
+  assert.deepEqual(withDecomposer.drafts, current.drafts)
+  assert.equal(withDecomposer.workspace, 'decomposer')
+  assert.equal(withDecomposer.decomposition.lyrics, 'tiny')
   assert.throws(() => parseStudioState(JSON.stringify({ ...v1WithDecomposer, drafts: { ...v1WithDecomposer.drafts, decomposer: null } })),
     'a malformed Decomposer draft is rejected, not replaced')
+})
+
+test('v4 preserves both parallel v2 schemas, v3 generation edits and original caption selections', () => {
+  const current = createInitialState()
+  current.workspace = 'decomposer'
+  current.drafts.effects.prompt = 'Rain with footsteps'
+  current.drafts.music.lyrics = '[chorus]\nA user-authored refrain'
+  current.drafts.music.musicKey = 'F# minor'
+  current.drafts.decomposer.prompt = 'Retain this goal'
+  current.decomposition.notes = true
+  current.decomposition.start = 12
+  current.decomposition.end = 25
+  current.decomposition.captions = true
+  const { captionModel: _captionModel, ...oldOptions } = current.decomposition
+  for (const version of [2, 3]) {
+    assert.deepEqual(parseStudioState(JSON.stringify({ ...current, version, decomposition: oldOptions })), current)
+  }
+  const { decomposition: _analysis, ...generation } = current
+  const migratedGeneration = parseStudioState(JSON.stringify({ ...generation, version: 2 }))
+  assert.deepEqual(migratedGeneration.drafts, current.drafts)
+  const strip = ({ lyrics: _lyrics, musicKey: _key, ...rest }: typeof current.drafts.music) => rest
+  const analysis = { ...current, version: 2, decomposition: oldOptions, drafts: Object.fromEntries(Object.entries(current.drafts).map(([key, draft]) => [key, strip(draft)])) }
+  const migratedAnalysis = parseStudioState(JSON.stringify(analysis))
+  assert.deepEqual(migratedAnalysis.decomposition, current.decomposition)
+  assert.equal(migratedAnalysis.drafts.music.lyrics, '')
+  assert.equal(migratedAnalysis.drafts.effects.prompt, current.drafts.effects.prompt)
+  assert.equal(migratedAnalysis.drafts.decomposer.prompt, current.drafts.decomposer.prompt)
+  assert.throws(() => parseStudioState(JSON.stringify({ ...analysis, decomposition: { broken: true } })))
+  assert.throws(() => parseStudioState(JSON.stringify({ ...generation, version: studioStateVersion })))
+  assert.throws(() => parseStudioState(JSON.stringify({ ...current, version: 99 })))
+  current.decomposition.captionModel = 'captions-native'
+  assert.deepEqual(parseStudioState(JSON.stringify(current)), current)
+  assert.throws(() => parseStudioState(JSON.stringify({ ...current, version: 3 })), 'new selections cannot masquerade as legacy data')
+  assert.throws(() => parseStudioState(JSON.stringify({ ...current, decomposition: { ...current.decomposition, captionModel: 'automatic' } })))
 })
 
 test('only Effects and Music reach generation paths', () => {
@@ -112,15 +154,27 @@ test('buildVariationBrief maps a Decomposer draft into a Music variation brief w
   state.drafts.decomposer.instrumental = false
 
   const brief = buildVariationBrief(state.drafts.decomposer)
-  assert.equal(brief.title, 'Neon skyline (variation)')
+  assert.equal(brief.title, 'Neon skyline')
   assert.match(brief.prompt, /Lyrics & vocals \(Uplifting, 118 BPM\)/)
-  assert.match(brief.prompt, /Preserve separated stem roles/)
-  assert.match(brief.prompt, /Include vocal phrasing and lyric structure/)
+  assert.match(brief.prompt, /Unanalysed intent/)
+  assert.match(brief.prompt, /No audio has been analysed/)
+  assert.doesNotMatch(brief.prompt, /Preserve separated stem roles|analyzed reference track/)
   assert.equal(brief.tempo, '118')
   assert.equal(brief.mood, 'Uplifting')
   assert.equal(brief.duration, '45')
   assert.equal(brief.instrumental, false)
 
   state.drafts.music = { ...state.drafts.music, ...brief, step: 'brief' }
+  assert.doesNotThrow(() => parseStudioState(JSON.stringify(state)))
+})
+
+test('draft handoff preserves all input instead of silently truncating', () => {
+  const state = createInitialState()
+  state.drafts.decomposer.prompt = 'x'.repeat(4000)
+  state.drafts.decomposer.title = 'y'.repeat(120)
+  const brief = buildVariationBrief(state.drafts.decomposer)
+  assert.ok(brief.prompt.includes(state.drafts.decomposer.prompt))
+  assert.equal(brief.title, state.drafts.decomposer.title)
+  state.drafts.music = { ...state.drafts.music, ...brief }
   assert.doesNotThrow(() => parseStudioState(JSON.stringify(state)))
 })
