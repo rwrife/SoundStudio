@@ -87,7 +87,13 @@ Sound Studio only stops a ComfyUI it started itself. Console output goes to `log
 
 ## Models
 
-Effects and Music each have their own model choice; the Decomposer has none yet and shows **Analysis models / Not connected**, and Model Settings opened from it shows Effects. The defaults are Stable Audio Open 1.0 for Effects and ACE-Step 1.5 Turbo for Music, and most people never need to change them. Model Settings shows the current model, its readiness and a download button when its files are missing. Choosing another model, a specific file, a custom workflow or a cloud partner model is under **Advanced** in Model Settings. Advanced starts collapsed unless you have already changed something there. It lists models in three groups and shows readiness, length limits, lyrics and key support, hardware fit, license and source.
+Effects and Music each have their own model choice; the Decomposer has none yet and shows **Analysis models / Not connected**, and Model Settings opened from it shows Effects. The defaults are Stable Audio Open 1.0 for Effects and ACE-Step 1.5 Turbo for Music. Stable Audio Open plus T5 also covers short instrumental music (1-47 seconds, no lyrics or key control), so you can reuse it in Music instead of installing another model if that meets your needs. ACE-Step retains lyrics, tempo, key and longer songs; its approximately 12 GB GPU-memory guidance is higher than Stable Audio Open's 6 GB.
+
+**Your computer** is shown without expanding Advanced: OS/architecture, CPU and total/available system RAM measured by the desktop app, separately from each GPU's name and total/free memory reported by ComfyUI. **Refresh** remeasures the host and refreshes an already connected backend; it never connects a disconnected backend or changes saved settings. Unknown or invalid memory stays unknown. CPU devices are not reported as GPUs, GPU memory is never added across devices, and unified/shared memory is not treated as dedicated VRAM. The renderer-only browser preview cannot measure host hardware and says so.
+
+The shared planning target is **32 GB system RAM**, with **64 GB and CUDA preferred**, not a promise that every local model fits. GPU memory, model files, nodes and architecture still matter. The current model card shows **Recommended setup** or **Your saved choice**, Local/Remote execution, requirements, observed fit and readiness. Remote warnings, setup issues, download progress/cancellation and saving errors remain outside Advanced. Settings save automatically. **Use recommended setup** restores only the selected task's model and Automatic file choices; it leaves the other task, backend address, cloud consent/key and workspace drafts untouched. It does not download or generate anything.
+
+Choosing another model, a specific file, a custom workflow or a cloud partner model is under **Advanced**, which starts collapsed every time you open Model Settings, including with saved custom choices. Every alternative shows concise requirements before selection: existing local GPU-memory estimates, no local inference GPU for cloud partners, or workflow-dependent requirements. Model details under Advanced retain length limits, lyrics/key support, license and source. This implements the [shared model-settings UX plan](docs/model-settings-ux-plan.md) without a shared package or backend.
 
 ### Download the default models
 
@@ -110,7 +116,7 @@ These open-weight models run through ComfyUI's built-in nodes. Sound Studio can 
 | ACE-Step 1.5 Turbo | Music | `models/checkpoints/ace_step_1.5_turbo_aio.safetensors` from [Comfy-Org/ACE-Step-1.5](https://huggingface.co/Comfy-Org/ACE-Step-1.5) (9.3 GB) | 10-600 s, lyrics, tempo and key. Apache-2.0 as published by Comfy-Org. About 12 GB VRAM suggested. |
 | ACE-Step v1 3.5B | Music | `models/checkpoints/ace_step_v1_3.5b.safetensors` from [Comfy-Org/ACE-Step_ComfyUI_repackaged](https://huggingface.co/Comfy-Org/ACE-Step_ComfyUI_repackaged) (7.2 GB) | 5-240 s, lyrics. Apache-2.0. About 10 GB VRAM suggested. |
 
-Sound Studio picks a matching checkpoint automatically, or you can choose a specific file. The file list puts the files that match the model first. If a saved choice doesn't look like the selected model but a matching file is installed, the model shows **NEEDS SETUP** and offers **Use *matching file* instead**, which switches back to Automatic in one click. The Generate panel only flags backend checks for the workspace you are in. Hardware fit compares the suggested VRAM with what ComfyUI reports. It is guidance, not a measurement of real performance.
+Sound Studio picks a matching checkpoint automatically, or you can choose a specific file. The file list puts the files that match the model first. If a saved choice doesn't look like the selected model but a matching file is installed, the model shows **NEEDS SETUP** and offers **Use *matching file* instead** without opening Advanced, which switches back to Automatic in one click. The Generate panel only flags backend checks for the workspace you are in. Hardware fit compares suggested GPU memory with the most free memory on a single reported device, not the sum or total capacity alone. It is advisory, never a compatibility guarantee or a measurement of real performance, and does not block remote inference for lack of a local GPU.
 
 ### Cloud partner models (opt-in)
 
@@ -228,6 +234,8 @@ npm run test:desktop
 ```
 
 `npm test` covers drafts and migration, model profiles, the model download catalog and downloader (host allowlist, redirects, size and SHA-256 checks, no overwrites, confirmation), ComfyUI install detection and launch arguments, output node installation, readiness checks, the loopback endpoint policy, request validation, workflow builders and output node selection, custom workflow placeholders, readiness and cloud gating, history interpretation and WAV/FLAC parsing.
+
+Hardware and settings regression coverage includes invalid/missing memory, CPU-only and unified-memory reports, separate GPU budgets, free-versus-total thresholds, requirement labels and task-scoped recommendation resets. The desktop smoke also checks measured host details, browser-only hardware unavailability, collapsed saved-custom settings, cloud-consent preservation and file correction without expanding Advanced.
 
 `npm run test:desktop` builds and launches the real Electron app with an isolated temporary profile. It runs against `scripts/mock-comfyui.mjs`, a test fixture that speaks the ComfyUI HTTP and WebSocket API and returns a synthesized test tone. The smoke test covers:
 

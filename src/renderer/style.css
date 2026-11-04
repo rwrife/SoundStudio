@@ -188,14 +188,26 @@ select { padding-right: 6px; }
 .segmented { display: flex; padding: 4px; background: var(--surface-app); border: 1px solid var(--border-subtle); border-radius: 7px; }
 .segmented button { flex: 1; padding: 10px; border-color: transparent; }
 .segmented button[aria-pressed="true"] { background: var(--accent-muted); color: var(--accent-primary); }
-.model-card { margin-top: 23px; border: 1px solid var(--border-subtle); background: var(--surface-app); padding: 21px; border-radius: 9px; }
+.model-card { margin-top: 18px; border: 1px solid var(--border-subtle); background: var(--surface-app); padding: 16px; border-radius: 9px; }
 .model-card-icon { display: inline-flex; color: var(--accent-primary); vertical-align: middle; margin-right: 14px; }
-.model-card h3 { margin: 22px 0 10px; font-size: 17px; }
+.model-card h3 { margin: 14px 0 10px; font-size: 17px; }
 .model-card p, .planned-section p { color: var(--text-secondary); line-height: 1.9; font-size: 12px; }
-.model-card dl { margin: 22px 0 0; font-size: 10px; }
-.model-card dl div { display: flex; justify-content: space-between; gap: 15px; padding: 11px 0; border-top: 1px solid var(--border-subtle); }
+.model-card dl { margin: 14px 0 0; font-size: 11px; }
+.model-card dl div { display: flex; justify-content: space-between; gap: 15px; padding: 8px 0; border-top: 1px solid var(--border-subtle); }
 .model-card dt { color: var(--text-secondary); }
 .model-card dd { margin: 0; text-align: right; }
+.computer-summary { background: var(--surface-app); border: 1px solid var(--border-subtle); border-radius: 9px; padding: 14px; margin-bottom: 18px; }
+.computer-summary h3 { font-size: 13px; }
+.computer-summary dl { margin: 8px 0; font-size: 11px; }
+.computer-summary dl > div { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 12px; margin-top: 8px; }
+.computer-summary dt { color: var(--text-secondary); }
+.computer-summary dd { margin: 0; overflow-wrap: anywhere; line-height: 1.5; }
+.device-memory { display: block; }
+.computer-summary .field-hint { margin: 8px 0 0; }
+.model-card .model-choice-state { font-size: 11px; color: var(--accent-primary); margin-bottom: 8px; }
+.model-card dd, .model-details p { overflow-wrap: anywhere; min-width: 0; }
+.model-card .subtle-button { margin-top: 12px; }
+.model-intro { margin: 14px 0; }
 .planned-section { margin-top: 25px; }
 .planned-section h3 { margin-bottom: 10px; }
 .connection-state { display: flex; gap: 16px; align-items: center; margin: 25px 0; }

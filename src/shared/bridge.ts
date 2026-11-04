@@ -2,6 +2,7 @@ import type { AudioInfo } from './audio'
 import type { BackendStatus, CloudConfiguration, CloudStatus, ComfyWorkflow, GenerationRequest, JobState, Result, TakeRecord, WorkflowInspection } from './generation'
 import type { LauncherStatus } from './launcher'
 import type { DownloadStatus } from './modelDownloads'
+import type { ComputerSummary } from './hardware'
 
 export interface TakeList { takes: TakeRecord[]; unreadable: number }
 export interface TakeAudio { bytes: Uint8Array; mimeType: string; info: AudioInfo }
@@ -9,6 +10,7 @@ export interface TakeAudio { bytes: Uint8Array; mimeType: string; info: AudioInf
 /** The complete surface the renderer can reach. Main validates every argument. */
 export interface SoundStudioBridge {
   platform: string
+  getComputerSummary(): Promise<Result<ComputerSummary>>
   checkBackend(endpoint: string): Promise<Result<BackendStatus>>
   getLauncher(): Promise<Result<LauncherStatus>>
   /** Opens a native folder picker in the main process; the renderer never supplies a path. */
@@ -38,6 +40,7 @@ export interface SoundStudioBridge {
 }
 
 export const channels = {
+  computerSummary: 'computer:summary',
   checkBackend: 'backend:check',
   launcherStatus: 'launcher:status',
   launcherFolder: 'launcher:folder',

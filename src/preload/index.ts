@@ -8,6 +8,7 @@ const invoke = (channel: string, ...args: unknown[]) => ipcRenderer.invoke(chann
 
 const bridge: SoundStudioBridge = {
   platform: process.platform,
+  getComputerSummary: () => invoke(channels.computerSummary),
   checkBackend: endpoint => invoke(channels.checkBackend, endpoint),
   getLauncher: () => invoke(channels.launcherStatus),
   chooseComfyFolder: () => invoke(channels.launcherFolder),

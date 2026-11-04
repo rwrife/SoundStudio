@@ -25,7 +25,7 @@ Sketch the crackle of a campfire, the perfect interface chime, the soundtrack to
 
 ![Sound Studio's Model Settings drawer showing the current model, its readiness and a collapsed Advanced section](docs/screenshots/model-settings.png)
 
-*Model Settings shows the current model. Other models, files and custom workflows wait under Advanced.*
+*Model Settings shows your computer, the current task's Local/Remote model and what needs setup. Advanced stays collapsed until you need other choices; Use recommended setup restores only the selected task. Choices save automatically.*
 
 ## Models
 
@@ -51,6 +51,7 @@ Sketch the crackle of a campfire, the perfect interface chime, the soundtrack to
 - Node.js **22.12 or newer** and npm.
 - A desktop environment supported by Electron. Development and testing happen on Windows; other platforms are not yet verified.
 - To generate, a recent [ComfyUI](https://github.com/comfyanonymous/ComfyUI) running on this device, plus at least one model. Local models need a capable GPU; ACE-Step 1.5 suggests about 12 GB of VRAM.
+- Shared planning target with Character Studio: **32 GB system RAM**, with **64 GB and CUDA preferred**. This is not a model-fit guarantee. Stable Audio Open suggests about 6 GB GPU memory and can cover short instrumental music too; ACE-Step's higher-memory default retains lyrics and full-song controls. Model Settings shows measured memory separately from these estimates.
 
 ## Getting started
 

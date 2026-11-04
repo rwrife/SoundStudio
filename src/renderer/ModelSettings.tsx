@@ -1,12 +1,13 @@
 import { useRef, useState } from 'react'
 import { AlertTriangle, ArrowRight, AudioLines, Check, Cloud, Cpu, FileJson, KeyRound, Music2, ShieldCheck, SlidersHorizontal, Trash2, Upload } from 'lucide-react'
 import {
-  assessHardware, createDefaultBackendSettings, estimateCostUsd, importCustomWorkflow, modelProfiles, placeholders, profilesFor,
+  assessHardware, createDefaultBackendSettings, estimateCostUsd, importCustomWorkflow, isRecommendedChoice, modelProfiles, modelRequirements, placeholders, profilesFor,
   type Execution, type ModelProfile
 } from '../shared/generation'
 import type { Workspace } from '../shared/workspace'
 import { ModelDownloadPanel } from './ModelDownloadPanel'
 import type { Backend } from './useBackend'
+import { YourComputer } from './YourComputer'
 
 const defaults = createDefaultBackendSettings()
 
@@ -24,15 +25,14 @@ export function ModelSettings({ backend, workspace, onWorkspace }: { backend: Ba
   const readiness = backend.readiness[workspace]
   const status = backend.status
   const hardware = assessHardware(profile, status?.devices ?? [])
-  const customized = (['effects', 'music'] as const).some(tab => {
-    const current = backend.settings.models[tab]
-    const encoder = modelProfiles[current.profileId].textEncoder
-    return current.profileId !== defaults.models[tab].profileId || !!current.checkpoint || (!!encoder && encoder.pattern.test(current.textEncoder))
-  })
-  const [advanced, setAdvanced] = useState(customized)
+  const matchingCheckpoint = status?.checkpoints.find(file => profile.checkpoint?.pattern.test(file))
+  const recommended = isRecommendedChoice(workspace, choice)
+  const [advanced, setAdvanced] = useState(false)
 
   return <>
-    <p className="dialog-intro">Each workspace comes with a recommended local model, downloaded into your ComfyUI with one click. Prompts and audio stay on this device. To use a different model, file or workflow, open Advanced.</p>
+    <p className="dialog-intro model-intro">One recommended local setup per task. More choices under Advanced. Changes save automatically on this device.</p>
+    <YourComputer backend={backend} />
+    <p className="field-label">Task</p>
     <div className="segmented" aria-label="Model workspace">{(['effects', 'music'] as const).map(tab =>
       <button key={tab} aria-pressed={workspace === tab} onClick={() => onWorkspace(tab)}>{tab === 'effects' ? 'Effects' : 'Music'}</button>)}</div>
     {backend.settingsError && <p className="warning-text" role="alert"><AlertTriangle size={14} /> {backend.settingsError}</p>}
@@ -40,19 +40,25 @@ export function ModelSettings({ backend, workspace, onWorkspace }: { backend: Ba
     <div className="model-card">
       <div className="model-card-icon">{workspace === 'effects' ? <AudioLines size={24} /> : <Music2 size={24} />}</div>
       <span className={`outline-badge ${readiness.ready ? 'ready' : 'attention'}`}>{readiness.ready ? <><Check size={11} /> READY</> : <><AlertTriangle size={11} /> NEEDS SETUP</>}</span>
-      <h3>{profile.label}</h3>
+      <h3>{choice.workflow && profile.execution === 'workflow' ? choice.workflow.name : profile.label}</h3>
+      <p className="model-choice-state"><strong>{recommended ? 'Recommended setup' : 'Your saved choice'}</strong> / {profile.execution === 'cloud' || readiness.remote ? 'Remote' : profile.execution === 'workflow' ? 'Workflow - execution depends on nodes' : 'Local'}</p>
       <p>{profile.summary}</p>
       <dl>
         <div><dt>Runs on</dt><dd>{profile.execution === 'local' ? 'Your ComfyUI, on this device' : profile.execution === 'cloud' ? `${profile.provider?.name}` : readiness.remote ? 'Partner nodes in your workflow (off this device)' : 'Your ComfyUI, as defined by the workflow'}</dd></div>
-        <div><dt>Length</dt><dd>{profile.minSeconds}-{profile.maxSeconds} sec{profile.durationControl === 'prompt' ? ' (described in the prompt; not exact)' : ''}</dd></div>
-        <div><dt>Lyrics / key</dt><dd>{profile.supportsLyrics ? 'Lyrics' : 'No lyrics'} / {profile.supportsKey ? 'Key' : 'No key control'}</dd></div>
+        <div><dt>Requirements</dt><dd>{modelRequirements(profile)}</dd></div>
         <div><dt>Hardware</dt><dd className={hardware.level === 'tight' || hardware.level === 'cpu' ? 'warning-inline' : ''}>{status || hardware.level === 'remote' ? hardware.text : 'Connect to ComfyUI to check.'}</dd></div>
         {profile.provider && <div><dt>Pricing</dt><dd>{profile.provider.pricingNote}</dd></div>}
-        <div><dt>License</dt><dd>{profile.license}</dd></div>
-        <div><dt>Source</dt><dd className="selectable">{profile.source}</dd></div>
+        {choice.checkpoint && <div><dt>Saved checkpoint</dt><dd>{choice.checkpoint}</dd></div>}
+        {choice.textEncoder && <div><dt>Saved encoder</dt><dd>{choice.textEncoder}</dd></div>}
       </dl>
+      {!recommended && <button className="subtle-button" onClick={() => backend.recommendModel(workspace)}>Use recommended setup</button>}
+      {workspace === 'music' && <p className="field-hint">Only need short instrumental clips? Reuse Stable Audio Open from Effects under Advanced (up to 47 seconds, no lyrics or key control). ACE-Step keeps full-song controls.</p>}
       {!!readiness.issues.length && <ul className="issue-list" aria-label="Setup needed">{readiness.issues.map(issue => <li key={issue}><AlertTriangle size={13} /> {issue}</li>)}</ul>}
+      {matchingCheckpoint && choice.checkpoint && profile.checkpoint && !profile.checkpoint.pattern.test(choice.checkpoint) &&
+        <button className="text-button" onClick={() => backend.chooseModel(workspace, { checkpoint: '' })}>Use {matchingCheckpoint} instead <ArrowRight size={14} /></button>}
     </div>
+    {(profile.execution === 'cloud' || readiness.remote) && <p className="warning-text"><Cloud size={14} /> Remote execution: prompts and settings leave this device through Comfy.org partner nodes; charges may apply. Consent and encrypted key controls are under Advanced.</p>}
+    {profile.execution === 'workflow' && !status && <p className="field-hint">Workflow execution is not checked while disconnected. Custom nodes can contact external services; inspect your workflow before running it.</p>}
     <ModelDownloadPanel backend={backend} items={backend.missingModels[workspace]} />
     {!status && backend.available && <p className="field-hint">Start ComfyUI from Backend connections to check and download models.</p>}
 
@@ -68,12 +74,19 @@ export function ModelSettings({ backend, workspace, onWorkspace }: { backend: Ba
           <h3>{group.title}</h3><p className="field-hint">{group.detail}</p>
           {items.map(item => <label key={item.id} className={`profile-option ${item.id === profile.id ? 'selected' : ''}`}>
             <input type="radio" name={`${workspace}-profile`} checked={item.id === profile.id} onChange={() => backend.chooseModel(workspace, { profileId: item.id })} />
-            <span><strong>{item.label}{item.id === defaults.models[workspace].profileId ? ' (recommended)' : ''}</strong><small>{item.summary}</small></span>
+            <span><strong>{item.label}{item.id === defaults.models[workspace].profileId ? ' (recommended)' : ''}</strong><small>{modelRequirements(item)}</small><small>{item.summary}</small></span>
             <span className={`execution-badge ${item.execution}`}>{executionBadge(item.execution)}</span>
           </label>)}
         </div>
       })}
     </fieldset>
+
+    <div className="settings-block model-details">
+      <h3>Model details</h3>
+      <p className="field-hint">{profile.minSeconds}-{profile.maxSeconds} seconds{profile.durationControl === 'prompt' ? ' (prompt-guided; not exact)' : ''}. {profile.supportsLyrics ? 'Lyrics supported' : 'No lyrics'}. {profile.supportsKey ? 'Key control supported' : 'No key control'}.</p>
+      <p className="field-hint">License: {profile.license}</p>
+      <p className="field-hint selectable">Source: {profile.source}</p>
+    </div>
 
     {(profile.checkpoint || profile.textEncoder) && <div className="settings-block">
       <h3><Cpu size={15} /> Installed files</h3>
@@ -111,8 +124,6 @@ function ModelFileSelect({ id, label, suggested, files, pattern, modelLabel, sel
       {!!matching.length && <optgroup label={`${modelLabel} files`}>{matching.map(file => <option key={file} value={file}>{file}</option>)}</optgroup>}
       {!!other.length && <optgroup label="Other files">{other.map(file => <option key={file} value={file}>{file}</option>)}</optgroup>}
     </select>
-    {!disabled && automatic && selected && !pattern.test(selected) &&
-      <button type="button" className="text-button" onClick={() => onChange('')}>Use {automatic} instead <ArrowRight size={14} /></button>}
   </>
 }
 
