@@ -8,13 +8,18 @@ import { _electron as electron } from 'playwright'
 const userData = await mkdtemp(join(tmpdir(), 'sound-studio-smoke-'))
 const fixtures = await mkdtemp(join(tmpdir(), 'sound-studio-audio-'))
 const capture = process.argv.includes('--screenshots')
-const screenshots = resolve('docs\\screenshots')
+const screenshots = resolve('docs', 'screenshots')
 const runtime = resolve(process.env.SOUND_STUDIO_TEST_RUNTIME || '.runtime')
 let coreAvailable = false
 try { await access(join(runtime, 'venv', 'Scripts', 'python.exe')); coreAvailable = true } catch {}
 const errors = []
 const diagnostics = []
 const { ELECTRON_RUN_AS_NODE: _unused, ...environment } = process.env
+const executableIndex = process.argv.indexOf('--executable')
+const executablePath = executableIndex === -1 ? undefined : process.argv[executableIndex + 1]
+if (executableIndex !== -1 && (!executablePath || executablePath.startsWith('--'))) {
+  throw new Error('--executable requires the path to a packaged application.')
+}
 let app
 let page
 
@@ -35,7 +40,18 @@ function fixtureWav() {
   return data
 }
 async function launch() {
-  app = await electron.launch({ args: [resolve('out\\main\\index.js'), `--user-data-dir=${userData}`], env: environment, timeout: 60000 })
+  app = await electron.launch({
+    ...(executablePath ? { executablePath: resolve(executablePath) } : {}),
+    args: [...(executablePath ? [] : [resolve('out', 'main', 'index.js')]), `--user-data-dir=${userData}`],
+    env: environment, timeout: 60000
+  })
+  if (executablePath) {
+    const packaged = await app.evaluate(({ app }) => ({ isPackaged: app.isPackaged, resourcesPath: process.resourcesPath }))
+    assert.equal(packaged.isPackaged, true)
+    for (const file of ['worker.py', 'native_captions.py', 'requirements-core.txt', 'requirements-captions.txt', join('native', 'llama-b12064-omni.patch')]) {
+      await access(join(packaged.resourcesPath, 'analysis', file))
+    }
+  }
   page = await app.firstWindow()
   page.setDefaultTimeout(30000)
   page.on('pageerror', error => errors.push(error.message))

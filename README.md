@@ -82,6 +82,8 @@ npm start
 
 On Windows, `.\Start-SoundStudio.ps1` also opens an existing build. A browser-only UI preview, which cannot generate, is available with `npm run dev:web`.
 
+The [desktop release workflow](.github/workflows/release.yml) prepares draft releases for Windows x64 and ARM64, macOS Apple Silicon and Linux x64. Packages are unsigned and do not bundle ComfyUI, models or analysis runtimes; see the [packaging and release guide](GUIDE.md#desktop-packages-and-releases).
+
 See the [guide](GUIDE.md) for model setup, cloud access, custom workflows, storage and troubleshooting. Contributor and coding-agent conventions are in [AGENTS.md](AGENTS.md).
 
 For existing recordings, open **Decomposer > Model Settings**, install **Audio + timing / harmony**, then import a recording you are entitled to process. Select optional models explicitly. Review and export actual available outputs; missing models fail with an actionable error.

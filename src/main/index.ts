@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog, protocol, session, type MessageBoxOptions } from 'electron'
 import { join } from 'node:path'
+import appIcon from '../../build/icon.png?asset'
 import { pathToFileURL } from 'node:url'
 import { registerDecomposer } from './decomposer-ipc'
 import type { AnalysisStore } from './analysis-store'
@@ -27,6 +28,7 @@ async function createWindow() {
     minHeight: 700,
     show: false,
     title: 'Sound Studio',
+    icon: appIcon,
     backgroundColor: '#111820',
     autoHideMenuBar: true,
     webPreferences: {
@@ -64,10 +66,12 @@ function reportStartupError(error: unknown) {
 }
 
 app.whenReady().then(async () => {
+  app.dock?.setIcon(appIcon)
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false))
   session.defaultSession.setPermissionCheckHandler(() => false)
   const renderer = pathToFileURL(join(import.meta.dirname, '../renderer/index.html')).href
-  store = await registerDecomposer(app.getPath('userData'), join(import.meta.dirname, '../../scripts/analysis'), event => {
+  const analysisScripts = app.isPackaged ? join(process.resourcesPath, 'analysis') : join(import.meta.dirname, '../../scripts/analysis')
+  store = await registerDecomposer(app.getPath('userData'), analysisScripts, event => {
     const frame = event.senderFrame
     if (!frame || frame !== event.sender.mainFrame || !BrowserWindow.fromWebContents(event.sender)) return false
     const url = new URL(frame.url)

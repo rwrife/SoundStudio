@@ -23,7 +23,7 @@ Sound Studio is an Electron, React and TypeScript desktop app for AI sound effec
 - Installing or updating ComfyUI, starting the ComfyUI Desktop app, and downloading models other than the default local ones below.
 - Verified full-precision Qwen2-Audio inference: that separate experimental profile exceeds the development host's RAM budget. Local quantized Qwen2.5-Omni descriptions are available as an explicit alternative.
 - General-purpose audio editing, variations, loop refinement or loudness processing.
-- Project files, search, packaging and an MCP server.
+- Project files, search and an MCP server.
 
 Sound Studio never fakes audio. If ComfyUI is unavailable, a model is missing or a job fails, you see that state rather than a placeholder take.
 
@@ -221,11 +221,23 @@ If saved data cannot be read or has an unknown format, an error banner appears a
 
 Electron uses context isolation, sandboxing and disabled Node integration. Window-open requests, navigation, webviews and permission requests are denied. The content security policy limits the renderer to app resources, blob audio and the registered, validated `soundstudio:` media scheme.
 
+The desktop window, macOS Dock and packaged application use the same waveform artwork as the header. `src/renderer/public/icon.svg` is the source; `build/icon.png` is its committed 1024-pixel raster counterpart. After changing the SVG, run `npm run icons` in a graphical desktop session, inspect the generated PNG and commit both assets. Electron Builder converts the PNG to platform-specific application icons when packaging.
+
 Every IPC call is validated again in the main process: loopback endpoints, generation requests, custom workflows and take IDs. The main process builds the ComfyUI graph, sends it, follows progress over WebSocket and history polling, and downloads and validates the output. The renderer never receives the API key or arbitrary file paths.
 
 The launcher accepts a ComfyUI folder only from the main-process folder picker or its own detection, never from the renderer. It runs only a recognized layout's own Python, without a shell, with fixed arguments that bind ComfyUI to loopback. It never stops a process it did not start. The only file it writes into the ComfyUI folder is the marked output node, resolved inside that folder's `custom_nodes` and written atomically.
 
 The model downloader accepts only catalog IDs from the renderer, never URLs or paths. The main process resolves the target inside the launcher's `models` folder, asks for confirmation in a native dialog, and fetches the pinned Hugging Face URL itself, as described in [Download the default models](#download-the-default-models).
+
+## Desktop packages and releases
+
+`npm run package -- --win --x64` builds a Windows x64 ZIP containing the application. Substitute `--win --arm64`, `--mac --arm64` or `--linux --x64` for Windows ARM64 ZIP, macOS Apple Silicon DMG or Linux x64 tarball. Use the corresponding host OS for packaging; Windows ARM64 can be cross-built on Windows x64. Output goes to the ignored `release` directory. ZIP and tarball downloads must be extracted before running the application.
+
+Packages include generation, model settings and the Decomposer UI with its worker scripts outside the app archive. ComfyUI, model weights and managed analysis runtimes are not bundled; setup remains explicit. Managed analysis setup currently supports Windows x64, including x64 emulation on Windows ARM64. macOS/Linux packages do not imply analysis-runtime support.
+
+The **Desktop release** GitHub Actions workflow runs when a `v*` tag is pushed, or manually with an existing tag. The tag must exactly match `v` plus the `package.json` version. It runs shared tests and desktop smoke checks, builds all four packages on matching-architecture runners, smoke-checks the packaged applications, and creates a **draft GitHub release** only after every build succeeds. Review the draft and publish it manually. Reusing an already-released tag fails rather than overwriting existing release assets. Relevant pull requests run the same builds and checks without creating a release.
+
+Windows and Linux **x86** release targets mean **x86-64 / x64**, not 32-bit x86. Downloads are currently unsigned and macOS builds are not notarized; the workflow does not claim operating-system trust or compatibility beyond its checks.
 
 ## Development and validation
 
@@ -254,6 +266,8 @@ Hardware and settings regression coverage includes invalid/missing memory, CPU-o
 The same command also runs `scripts/decomposer-smoke.mjs`. With the explicitly acquired core runtime in `.runtime`, it exercises real decoding/DSP, playback, corrections, exports, cancellation and missing models. Without that runtime it reports the unrun DSP scenario, rather than claiming success. See the [Decomposer validation instructions](docs/DECOMPOSER.md#development-and-validation).
 
 **Synthetic audio and mock ComfyUI prove contracts, not ML output quality.** Check real generation against your own ComfyUI. Separate real Decomposer model evidence and attribution are documented in its guide.
+
+To run the same checks against a packaged Windows x64 application, use `node scripts/desktop-smoke.mjs --executable "release\win-unpacked\Sound Studio.exe"` and `node scripts/decomposer-smoke.mjs --executable "release\win-unpacked\Sound Studio.exe"` after packaging. The second check also verifies that analysis worker scripts ship outside the application archive. The `--executable` option also accepts a macOS application binary or Linux executable.
 
 Capture the actual app for documentation:
 
