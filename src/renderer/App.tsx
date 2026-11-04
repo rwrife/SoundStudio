@@ -180,8 +180,8 @@ export function App() {
   return <div className="app">
     <header className="topbar">
       <a className="brand" href="#workspace" aria-label="Sound Studio workspace">
-        <img src="./icon.svg" alt="" width="38" height="38" />
-        <span>sound <strong>studio</strong><small>LOCAL SOUND. LIMITLESS IDEAS.</small></span>
+        <img src="./icon.svg" alt="" width="40" height="40" />
+        <span className="brand-text"><span className="brand-wordmark">sound<strong>studio</strong></span><small>LOCAL SOUND. LIMITLESS IDEAS.</small></span>
       </a>
       <nav className="workspace-tabs" role="tablist" aria-label="Sound workspace" onKeyDown={navigateTabs}>
         {workspaces.map((tab, index) => <Fragment key={tab.id}>
@@ -195,8 +195,8 @@ export function App() {
       </nav>
       <div className="topbar-actions">
         <button className="subtle-button" onClick={openModels} aria-haspopup="dialog"><SlidersHorizontal size={15} /> Model Settings</button>
-        <button className={`backend-button ${summary.tone === 'warning' && backend.available ? 'warning' : ''}`} onClick={() => setSurface('connections')} aria-haspopup="dialog">
-          <span className={`status-dot ${!backend.available ? '' : summary.tone === 'ready' ? 'blue' : summary.tone === 'pending' ? 'starting' : 'warn'}`} /> {backendLabel} <ChevronRight size={13} /></button>
+        <button className={`backend-button ${summary.tone === 'warning' && backend.available ? 'warning' : ''}`} onClick={() => setSurface('connections')} aria-haspopup="dialog" aria-label={backendLabel}>
+          <span className={`status-dot ${!backend.available ? '' : summary.tone === 'ready' ? 'blue' : summary.tone === 'pending' ? 'starting' : 'warn'}`} /><span className="backend-label">{backendLabel}</span><ChevronRight size={13} /></button>
         <button className="icon-button" aria-label="Quick guide" onClick={() => setSurface('help')} aria-haspopup="dialog"><CircleHelp size={18} /></button>
       </div>
     </header>

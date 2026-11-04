@@ -258,7 +258,7 @@ Capture the actual app for documentation:
 npm run screenshots
 ```
 
-This runs the same checks and writes `effects-workspace.png`, `model-settings.png`, `music-workspace.png`, `decomposer-workspace.png` and `backend-connections.png` to `docs/screenshots`. They are captured before connecting to the mock, so they never show test-fixture audio. Inspect captures before committing; never use mockups as evidence of working generation or decomposition.
+This runs the same checks and writes `effects-workspace.png`, `model-settings.png`, `music-workspace.png`, `decomposer-workspace.png`, `backend-connections.png` and a cropped `app-header.png` to `docs/screenshots`. They are captured before connecting to the mock, so they never show test-fixture audio. Inspect captures before committing; never use mockups as evidence of working generation or decomposition.
 
 ## Troubleshooting
 
@@ -284,3 +284,5 @@ This runs the same checks and writes `effects-workspace.png`, `model-settings.pn
 ## Design reference
 
 The layout takes its direction from [rwrife/CharacterStudio](https://github.com/rwrife/CharacterStudio), inspected at commit `c4497c1c7f148786c102d7fb5e6998f2c62b4ff7`: header workspace tabs, contextual left settings, a connected chevron stepper and a large central working surface. Documentation follows its concise README, detailed guide and agent guidance split.
+
+The app-drawn header follows the [shared header metrics](docs/model-settings-ux-plan.md#shared-app-header-metrics): Segoe UI Variable, a 78 px desktop header, 40 px brand icon, 24 px wordmark (700/300 weights), 8 px uppercase tagline and 34 px action controls. Both apps retain their own names, icons and accent colors; the native OS title bar is unchanged. The brand stays the same size at the supported 960 px minimum, while the narrow web preview retains a two-row header with compact icon actions.

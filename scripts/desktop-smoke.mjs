@@ -45,6 +45,51 @@ async function assertNoOverflow(page) {
   }
 }
 
+async function assertHeaderMetrics(page, width) {
+  const metrics = await page.locator('.topbar').evaluate(header => {
+    const style = element => {
+      const css = getComputedStyle(element)
+      return Object.fromEntries(['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing', 'gap', 'paddingLeft', 'paddingTop', 'marginLeft', 'flexShrink'].map(key => [key, css[key]]))
+    }
+    return {
+      header: style(header), height: header.getBoundingClientRect().height,
+      icon: { ...style(header.querySelector('.brand img')), width: header.querySelector('.brand img').getBoundingClientRect().width, height: header.querySelector('.brand img').getBoundingClientRect().height },
+      brand: style(header.querySelector('.brand')), stack: style(header.querySelector('.brand-text')),
+      wordmark: style(header.querySelector('.brand-wordmark')), studio: style(header.querySelector('.brand strong')),
+      tagline: style(header.querySelector('.brand small')), actions: style(header.querySelector('.topbar-actions')),
+      buttons: [...header.querySelectorAll('.topbar-actions > button')].map(button => ({ ...style(button), height: button.getBoundingClientRect().height }))
+    }
+  })
+  assert.match(metrics.header.fontFamily, /"Segoe UI Variable", "Segoe UI", sans-serif/)
+  assert.equal(metrics.height, 78)
+  assert.equal(metrics.header.paddingLeft, width <= 1200 ? '18px' : '24px')
+  assert.equal(metrics.header.paddingTop, '0px')
+  assert.equal(metrics.header.gap, '20px')
+  assert.equal(metrics.icon.width, 40)
+  assert.equal(metrics.icon.height, 40)
+  assert.equal(metrics.icon.flexShrink, '0')
+  assert.equal(metrics.brand.gap, '12px')
+  assert.equal(metrics.stack.gap, '3px')
+  assert.equal(metrics.wordmark.fontSize, '24px')
+  assert.equal(metrics.wordmark.fontWeight, '700')
+  assert.equal(metrics.wordmark.lineHeight, '26.4px')
+  assert.equal(metrics.wordmark.letterSpacing, '-0.8px')
+  assert.equal(metrics.studio.fontWeight, '300')
+  assert.equal(metrics.studio.marginLeft, '4px')
+  assert.equal(metrics.tagline.fontSize, '8px')
+  assert.equal(metrics.tagline.fontWeight, '500')
+  assert.equal(metrics.tagline.lineHeight, '11.2px')
+  assert.equal(metrics.tagline.letterSpacing, '1.5px')
+  assert.equal(metrics.actions.gap, width <= 1200 ? '6px' : '8px')
+  for (const button of metrics.buttons) {
+    assert.equal(button.height, 34)
+    assert.equal(button.fontSize, '12px')
+    assert.equal(button.fontWeight, '500')
+    assert.equal(button.lineHeight, '16px')
+  }
+  console.log(`Header ${width}px: 78px; icon 40x40; wordmark 24px/700+300/26.4px/-0.8px; tagline 8px/500/11.2px/1.5px; padding ${metrics.header.paddingLeft}; actions 34px/12px/500/16px gap ${metrics.actions.gap}.`)
+}
+
 const jobStatus = (page, status) => page.locator('.job-card .eyebrow', { hasText: new RegExp(`^${status}`) }).waitFor({ timeout: 30_000 })
 const expectTakes = (page, count) => page.locator('.takes-section .section-heading .count', { hasText: new RegExp(`^${count}$`) }).waitFor({ timeout: 10_000 })
 const actionReason = page => page.locator('#action-reason').innerText()
@@ -92,11 +137,12 @@ try {
   await page.getByRole('button', { name: /^Setup needs attention/ }).waitFor({ timeout: 15_000 })
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1440, 1000))
   await assertNoOverflow(page)
+  await assertHeaderMetrics(page, 1440)
   assert.equal(await page.locator('.workspace-tabs svg').count(), 0, 'Workspace tabs are text-only')
   assert.equal(await page.locator('.workspace-tab-divider').count(), 2)
   assert.equal(await page.locator('.workspace-tab-divider').first().textContent(), '|')
   assert.equal(await page.locator('.workspace-tab-divider').first().getAttribute('aria-hidden'), 'true')
-  assert.match(await page.locator('.brand').innerText(), /sound studio/)
+  assert.equal(await page.locator('.brand-wordmark').innerText(), 'soundstudio', 'Wordmark spacing comes from the explicit shared CSS gap, not text whitespace')
   assert.match(await page.getByRole('tab', { name: 'Effects', exact: true }).evaluate(element => getComputedStyle(element).fontFamily), /Segoe UI Variable/)
   assert.equal(await page.getByRole('tab', { name: 'Effects', exact: true }).evaluate(element => getComputedStyle(element).fontSize), '19px')
   assert.equal(await page.getByRole('tab', { name: 'Decomposer', exact: true }).evaluate(element => getComputedStyle(element).fontSize), '19px')
@@ -114,7 +160,10 @@ try {
   assert.match(await page.locator('.setup-warning').innerText(), /ComfyUI is not running/)
   assert.equal(await page.getByRole('button', { name: 'Model: Local / Stable Audio Open 1.0. Needs setup. Open Model Settings' }).isVisible(), true)
   assert.match(await page.locator('.statusbar').innerText(), /No cloud\. No uploads\./)
-  if (capture) await page.screenshot({ path: join(screenshots, 'effects-workspace.png'), scale: 'css', animations: 'disabled', caret: 'hide' })
+  if (capture) {
+    await page.screenshot({ path: join(screenshots, 'effects-workspace.png'), scale: 'css', animations: 'disabled', caret: 'hide' })
+    await page.locator('.topbar').screenshot({ path: join(screenshots, 'app-header.png'), scale: 'css', animations: 'disabled', caret: 'hide' })
+  }
 
   await page.getByLabel('Take name').fill('Forest ambience')
   await page.getByLabel('Describe your sound').fill('Rain through a forest canopy')
@@ -323,6 +372,7 @@ try {
   await page.keyboard.press('Escape')
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(960, 700))
   await assertNoOverflow(page)
+  await assertHeaderMetrics(page, 960)
 
   // Local generation through the Stable Audio graph.
   await page.getByRole('tab', { name: 'Effects', exact: true }).click()
@@ -514,6 +564,19 @@ try {
   assert.equal(await previewModels.getByText('System RAM', { exact: true }).count(), 0)
   assert.equal(await previewModels.locator('details.advanced-settings').evaluate(element => element.open), false)
   assert.equal(await previewModels.evaluate(element => element.scrollWidth <= element.clientWidth), true)
+  await preview.keyboard.press('Escape')
+  for (const width of [600, 360]) {
+    await preview.setViewportSize({ width, height: 700 })
+    assert.equal(await preview.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, `Narrow ${width}px preview must not overflow`)
+    assert.equal(await preview.locator('.topbar-actions > .subtle-button').evaluate(element => getComputedStyle(element).fontSize), '0px')
+    const header = await preview.locator('.topbar').boundingBox()
+    const tabs = await preview.locator('.workspace-tabs').boundingBox()
+    assert.ok(tabs.y > header.y + 40, 'Narrow-preview tabs remain on the second header row')
+    assert.equal(await preview.getByRole('button', { name: 'Model Settings', exact: true }).isVisible(), true)
+  }
+  await preview.setViewportSize({ width: 1440, height: 1000 })
+  await preview.evaluate(() => { document.documentElement.style.zoom = '1.25' })
+  assert.equal(await preview.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, 'Header remains within the viewport at 125% zoom')
   await preview.close()
 
   await page.evaluate(() => {
