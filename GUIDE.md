@@ -263,6 +263,8 @@ Hardware and settings regression coverage includes invalid/missing memory, CPU-o
 - Playback, export with provenance and library delete.
 - Relaunch persistence, corrupt storage and the minimum window size.
 
+When operating-system encryption is available, the generation smoke checks encrypted key storage and opt-in cloud generation against the mock. Without an OS keyring (such as on headless Linux), it checks that key storage is refused and cloud generation stays disabled, then continues the local generation and library checks. It does not enable a plaintext secret-storage fallback.
+
 The same command also runs `scripts/decomposer-smoke.mjs`. With the explicitly acquired core runtime in `.runtime`, it exercises real decoding/DSP, playback, corrections, exports, cancellation and missing models. Without that runtime it reports the unrun DSP scenario, rather than claiming success. See the [Decomposer validation instructions](docs/DECOMPOSER.md#development-and-validation).
 
 **Synthetic audio and mock ComfyUI prove contracts, not ML output quality.** Check real generation against your own ComfyUI. Separate real Decomposer model evidence and attribution are documented in its guide.
