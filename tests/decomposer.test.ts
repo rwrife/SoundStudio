@@ -220,6 +220,9 @@ test('legacy saved analyses retain their original caption selection and raw evid
     const asset = await store.importFile(source)
     const job = await store.start({ assetId: asset.id, title: 'Legacy', options: { ...defaultOptions, end: 1 } })
     await eventually(() => store.snapshot().jobs[0].state === 'completed')
+    // Completion is visible in memory before the final atomic save finishes.
+    // Wait for the writer before replacing its record with the legacy fixture.
+    await eventually(() => !store.isWorking())
     const path = join(root, 'data', 'analyses', job.id, 'job.json')
     const record = JSON.parse(await readFile(path, 'utf8'))
     record.version = 1

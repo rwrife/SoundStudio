@@ -44,7 +44,12 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 time.sleep(1.5)
-server = ThreadingHTTPServer((args.listen, args.port), Handler)
+# status() probes all built-in node classes concurrently. The default TCP
+# backlog (5) can drop that burst on Windows even though /system_stats works.
+class Server(ThreadingHTTPServer):
+    request_queue_size = 128
+
+server = Server((args.listen, args.port), Handler)
 print('Fake ComfyUI listening on', args.listen, args.port, flush=True)
 server.serve_forever()
 `
